@@ -987,10 +987,10 @@ let rec=null;
 const semAcento=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
 const NUM_PAL={zero:0,um:1,uma:1,dois:2,duas:2,tres:3,quatro:4,cinco:5,seis:6,sete:7,oito:8,nove:9,dez:10,onze:11,doze:12,treze:13,quatorze:14,catorze:14,quinze:15,dezesseis:16,dezessete:17,dezoito:18,dezenove:19,
   vinte:20,trinta:30,quarenta:40,cinquenta:50,sessenta:60,setenta:70,oitenta:80,noventa:90,cem:100,cento:100,duzentos:200,duzentas:200,trezentos:300,trezentas:300,quatrocentos:400,quinhentos:500,seiscentos:600,setecentos:700,oitocentos:800,novecentos:900};
-// palavras-chave por categoria; vence a palavra mais longa encontrada (ex.: "mercado livre" ganha de "mercado")
+// palavras-chave por categoria (expressões unidas por _); vence a mais longa encontrada (ex.: "mercado livre" ganha de "mercado")
 const PALAVRAS_CAT={
-  mercado:'pao paes padaria mercado supermercado feira acougue hortifruti sacolao leite frutas fruta verdura verduras carne frango ovos atacadao assai cafe da manha',
-  restaurantes:'lanche lanches ifood delivery pizza restaurante almoco jantar hamburguer sushi acai sorvete pastel marmita salgado cafeteria lanchonete',
+  mercado:'pao paes padaria mercado supermercado feira acougue hortifruti sacolao leite frutas fruta verdura verduras carne frango ovos atacadao assai cafe_da_manha',
+  restaurantes:'lanche lanches ifood delivery pizza restaurante almoco jantar hamburguer sushi acai sorvete pastel marmita salgado cafe cafeteria lanchonete',
   transporte:'uber 99 taxi gasolina combustivel etanol onibus metro estacionamento pedagio oficina mecanico pneu ipva moto carro posto',
   saude:'farmacia remedio remedios medico consulta dentista exame exames hospital academia psicologo',
   contas:'luz agua internet celular telefone gas conta energia',
@@ -1003,7 +1003,7 @@ const PALAVRAS_CAT={
   viagens:'viagem hotel passagem pousada airbnb',
   casa:'movel moveis cadeira mesa decoracao panela reforma tv televisao geladeira fogao microondas sofa colchao',
   dividas:'emprestimo juros divida',
-  compras:'roupa roupas sapato tenis loja presente shopee amazon shein mercado livre blusa calca camisa bolsa',
+  compras:'roupa roupas sapato tenis loja presente shopee amazon shein mercado_livre blusa calca camisa bolsa',
 };
 const CONECT=new Set('de do da dos das com no na nos nas em pra para pro o a os as um uma uns umas e que'.split(' '));
 const TIRAR=['me pagaram','pagaram','a gente','mes que vem','proximo mes','gastei','gastamos','gastou','paguei','pagamos','pagou','comprei','compramos','comprou',
@@ -1013,13 +1013,17 @@ function numBR(x){x=String(x);if(/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(x))x=x.replac
 function numerosPorExtenso(t){
   const w=t.split(/\s+/),out=[];let i=0;
   while(i<w.length){
-    let j=i,tot=0,cur=0,achou=false,fim=i;
+    // ult: último pedaço somado. "e" só junta um pedaço menor ("vinte e cinco", "cento e vinte", "mil e quinhentos");
+    // "doze e cinquenta" para no doze e vira "12 e 50", que adiante é lido como R$ 12,50
+    let j=i,tot=0,cur=0,achou=false,fim=i,ult=Infinity,livre=true;
+    const val=t=>NUM_PAL[semAcento(t||'').replace(/[.,!?]$/,'')];
     while(j<w.length){
       const x=semAcento(w[j]).replace(/[.,!?]$/,''),prox=semAcento(w[j+1]||'');
-      // "um/uma" só vira número em "um mil", "um real" ou depois de outro número ("vinte e um")
-      if(x in NUM_PAL&&(!['um','uma'].includes(x)||achou||prox==='mil'||/^rea(l|is)/.test(prox))){cur+=NUM_PAL[x];achou=true;fim=j;j++;continue}
-      if(x==='mil'){tot+=(cur||1)*1000;cur=0;achou=true;fim=j;j++;continue}
-      if(x==='e'&&achou&&(semAcento(w[j+1]||'') in NUM_PAL||prox==='mil')){j++;continue}
+      // "um/uma" só vira número em "um mil", "um real", "um e cinquenta" ou depois de outro número ("vinte e um")
+      const umNum=!['um','uma'].includes(x)||achou||prox==='mil'||/^rea(l|is)/.test(prox)||(prox==='e'&&val(w[j+2])!==undefined);
+      if(x in NUM_PAL&&livre&&umNum&&NUM_PAL[x]<ult){cur+=NUM_PAL[x];ult=NUM_PAL[x];achou=true;livre=false;fim=j;j++;continue}
+      if(x==='mil'&&(livre||cur)){tot+=(cur||1)*1000;cur=0;ult=1000;achou=true;livre=true;fim=j;j++;continue}
+      if(x==='e'&&achou&&((val(w[j+1])!==undefined&&val(w[j+1])<ult)||prox==='mil')){livre=true;j++;continue}
       break;
     }
     if(achou){out.push(String(tot+cur));i=fim+1}else{out.push(w[i]);i++}
@@ -1037,7 +1041,11 @@ function interpretar(texto){
   let parcelas=0,valorParc=0;
   s=s.replace(/(?:parcelad[oa]\s+em\s+|dividid[oa]\s+em\s+|em\s+)?(\d+)\s*(?:x|vezes|parcelas)(?=\s|$)(?:\s*de\s*(?:r\$\s*)?(\d[\d.]*(?:,\d{1,2})?))?/,(m,a,b)=>{parcelas=+a;if(b)valorParc=numBR(b);return ' '});
   s=s.replace(/(\d+)\s*(?:reais|real)?\s*e\s*(\d{1,2})\s*centavos?/,(m,a,b)=>` ${a},${b.padStart(2,'0')} reais `)
-     .replace(/(?:^|\s)(\d{1,2})\s*centavos?/,(m,b)=>` 0,${b.padStart(2,'0')} reais `);
+     .replace(/(?:^|\s)(\d{1,2})\s*centavos?/,(m,b)=>` 0,${b.padStart(2,'0')} reais `)
+     // o celular costuma escrever "doze e cinquenta" como hora: 12:50 ou 12h50
+     .replace(/(\d{1,4})\s*(?::|h)\s*(\d{2})(?=\s|$|[.,!?])/,(m,a,b)=>` ${a},${b} reais `)
+     // "12 e 50" ou "12 reais e 50", sem a palavra centavos (mas não "3 e 2 vezes")
+     .replace(/(\d+)\s*(?:reais|real)?\s+e\s+(\d{1,2})(?=\s|$|[.,!?])(?!\s*(?:x|vezes|parcelas|mil)(?:\s|$))/,(m,a,b)=>` ${a},${b.length===1?b+'0':b} reais `);
   const NUM='(\\d{1,3}(?:\\.\\d{3})+(?:,\\d{1,2})?|\\d+(?:,\\d{1,2})?)';
   const m=s.match(new RegExp('r\\$\\s*'+NUM))||s.match(new RegExp(NUM+'\\s*(?:reais|real|contos?|pilas?)(?=\\s|$|[.,!?])'))||s.match(new RegExp(NUM));
   let valor=m?numBR(m[1]):0;if(!(valor>0))valor=0;
@@ -1075,13 +1083,9 @@ function interpretar(texto){
   descricao=descricao?descricao[0].toUpperCase()+descricao.slice(1):(renda?'Entrada extra':'Gasto');
   // categoria pela palavra-chave mais longa
   let categoria='outros',melhor=0;const alvo=' '+semAcento(descricao)+' ';
-  for(const[c,lista]of Object.entries(PALAVRAS_CAT)){
-    // expressões de 2 e 3 palavras ("mercado livre", "cafe da manha") contam como uma só
-    const toks=lista.split(' '),kws=[...toks];
-    for(let i=0;i<toks.length-1;i++)kws.push(toks[i]+' '+toks[i+1]);
-    for(let i=0;i<toks.length-2;i++)kws.push(toks[i]+' '+toks[i+1]+' '+toks[i+2]);
-    for(const kw of kws)if(kw.length>melhor&&alvo.includes(' '+kw+' ')){categoria=c;melhor=kw.length}
-  }
+  for(const[c,lista]of Object.entries(PALAVRAS_CAT))
+    for(const kw of lista.split(' ').map(k=>k.replace(/_/g,' ')))
+      if(kw.length>melhor&&alvo.includes(' '+kw+' ')){categoria=c;melhor=kw.length}
   if(renda)return{col:'rendas',tipo:'extra',descricao,valor,pessoa,inicio:mes,fim:''};
   return{col:'gastos',tipo:parcelas>=2?'parcelado':'unico',descricao,valor,categoria,pessoa,inicio:mes,fim:'',parcelas:parcelas>=2?parcelas:10};
 }
