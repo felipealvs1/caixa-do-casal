@@ -213,6 +213,11 @@ tr.cur td{background:var(--surface-2)}
 .bottom button[aria-current="page"] svg{stroke:var(--num)}
 .fab{position:fixed;z-index:21;right:max(16px,calc(env(safe-area-inset-right,0px) + 16px));bottom:calc(var(--nav-h) + 16px + env(safe-area-inset-bottom,0px));border:0;background:var(--ink);color:var(--bg);border-radius:999px;padding:13px 20px;font-weight:600;font-size:15px;box-shadow:var(--shadow);display:flex;gap:8px;align-items:center}
 .fab span{font-size:20px;line-height:1;font-weight:400}
+.mic{position:fixed;z-index:21;right:max(16px,calc(env(safe-area-inset-right,0px) + 16px));bottom:calc(var(--nav-h) + 76px + env(safe-area-inset-bottom,0px));width:50px;height:50px;border-radius:50%;border:1px solid var(--hair);background:var(--surface);color:var(--ink);box-shadow:var(--shadow);display:grid;place-items:center}
+.mic svg,.micbig svg{width:22px;height:22px}
+.micbig{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:18px;border-radius:var(--r);border:1px solid var(--line);background:var(--surface);font-weight:600}
+.micbig.on{border-color:var(--bad);color:var(--bad)}
+@media (prefers-reduced-motion:no-preference){.micbig.on{animation:pulso 1.2s ease-in-out infinite}@keyframes pulso{50%{box-shadow:0 0 0 7px var(--bad-bg)}}}
 
 /* Folha (modal) */
 .scrim{position:fixed;inset:0;background:var(--scrim);z-index:40}
@@ -233,6 +238,7 @@ tr.cur td{background:var(--surface-2)}
   .bottom{display:none}
   main{padding-bottom:110px}
   .fab{bottom:28px;right:max(28px,calc(env(safe-area-inset-right,0px) + 28px))}
+  .mic{bottom:88px;right:max(28px,calc(env(safe-area-inset-right,0px) + 28px))}
   .toast{bottom:96px}
   .grid2{grid-template-columns:1.25fr 1fr;align-items:start}
   .hero{grid-template-columns:1.1fr 1fr;align-items:end}
@@ -253,6 +259,7 @@ tr.cur td{background:var(--surface-2)}
 <header class="top"><div class="top-in" id="top"></div></header>
 <main id="main"></main>
 <button class="fab" id="fab" type="button" data-act="add"><span>+</span> Lançar</button>
+<button class="mic" id="mic" type="button" data-act="voz" aria-label="Lançar falando" title="Lançar falando"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
 <nav class="bottom" id="bottom" aria-label="Seções"></nav>
 <div class="scrim" id="scrim" data-act="sheet-close" hidden></div>
 <section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" hidden></section>
@@ -288,6 +295,7 @@ const ICONS={
   lancamentos:'<path d="M5 6h14M5 12h14M5 18h9"/>',
   projecao:'<path d="M4 18l5-6 4 3 7-9"/><path d="M15 6h5v5"/>',
   analise:'<circle cx="12" cy="12" r="8"/><path d="M12 8v5M12 16v.5"/>',
+  mic:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
   sol:'<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
   lua:'<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>',
   ajustes:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1"/>',
@@ -452,8 +460,9 @@ function sugestoes(){
 /* ---------- Persistência ---------- */
 function loadPrefs(){const p=lsGet(LS_PREF)||{};S.exemploOff=!!p.exemploOff;if(['casal','a','b'].includes(p.view))S.view=p.view;
   if(['claro','escuro'].includes(p.tema))S.tema=p.tema;aplicarTema();
+  if(['a','b'].includes(p.eu))S.eu=p.eu;
   const h=location.hash.slice(1);if(TABS.some(t=>t[0]===h))S.tab=h}
-function savePrefs(){lsSet(LS_PREF,{exemploOff:S.exemploOff,view:S.view,tema:S.tema})}
+function savePrefs(){lsSet(LS_PREF,{exemploOff:S.exemploOff,view:S.view,tema:S.tema,eu:S.eu})}
 // Tema: escolha de cada aparelho; sem escolha, segue o sistema
 const mqEscuro=matchMedia('(prefers-color-scheme: dark)');
 function temaAtual(){return S.tema||(mqEscuro.matches?'escuro':'claro')}
@@ -593,9 +602,9 @@ function render(){
   clampMes();
   renderTop();
   const v={resumo:viewResumo,lancamentos:viewLanc,projecao:viewProj,analise:viewAnalise,ajustes:viewAjustes}[S.tab];
-  if(S.precisaSenha){$('#main').innerHTML=telaSenha();$('#fab').hidden=true;return}
+  if(S.precisaSenha){$('#main').innerHTML=telaSenha();setFab(true);return}
   $('#main').innerHTML=(isExemplo()&&S.tab!=='ajustes'?bannerExemplo():'')+v();
-  $('#fab').hidden=S.tab==='ajustes';
+  setFab(S.tab==='ajustes'||!$('#sheet').hidden);
 }
 function bannerExemplo(){
   return `<div class="banner"><span><span class="pill neutro">Exemplo</span>&nbsp; Números fictícios para mostrar como o app funciona. Nada aqui é de vocês.</span>
@@ -863,6 +872,14 @@ function viewAjustes(){
     </div>
     <p class="hint" style="margin:0">Meses anteriores a esse ficam fora do app.</p>
   </div></section>
+  <section class="sec"><h3>Lançar falando</h3>
+    <div class="card settings">
+      <div class="field"><span class="flabel">Quem usa este aparelho</span>
+        <div class="seg" role="group" aria-label="Quem usa este aparelho">
+          ${[['','Os dois'],['a',nome('a')],['b',nome('b')]].map(([k,l])=>`<button type="button" data-act="eu" data-v="${k}" aria-pressed="${(S.eu||'')===k}">${esc(l)}</button>`).join('')}
+        </div></div>
+      <p class="hint" style="margin:0">Quando a frase não diz de quem é (“gastei 10 de pão”), o gasto fica para quem usa este aparelho. Fica salvo só aqui. ${SR?'':'Este navegador não reconhece voz: o botão abre um campo de texto, e dá para usar o microfone do teclado.'}</p>
+    </div></section>
   <section class="sec"><h3>Usar como aplicativo</h3>
     <div class="card hint" style="font-size:14px">
       ${S.modo==='planilha'?'Os dados ficam na planilha do Google de vocês e aparecem para os dois em qualquer aparelho. Para entrar em outro aparelho, basta o link e a senha do casal.'
@@ -892,10 +909,11 @@ function openSheet(col,item){
   if(item)draft={col,...item,valor:fmtValor(item.valor)};
   else if(col==='gastos')draft={col,tipo:'fixo',descricao:'',valor:'',categoria:'mercado',pessoa:pDef,inicio:S.mes,fim:'',parcelas:10};
   else draft={col,tipo:'fixa',descricao:'',valor:'',pessoa:S.view==='b'?'b':'a',inicio:S.mes,fim:''};
-  renderSheet();$('#scrim').hidden=false;$('#sheet').hidden=false;$('#fab').hidden=true;
+  renderSheet();$('#scrim').hidden=false;$('#sheet').hidden=false;setFab(true);
   setTimeout(()=>{const f=$('#f_desc');if(f&&!item&&matchMedia('(min-width:860px)').matches)f.focus()},50);
 }
-function closeSheet(){$('#scrim').hidden=true;$('#sheet').hidden=true;$('#fab').hidden=S.tab==='ajustes';draft=null;if(S.pendingRender)render()}
+function setFab(v){$('#fab').hidden=v;$('#mic').hidden=v}
+function closeSheet(){S.voz=null;try{if(rec)rec.abort()}catch(e){}$('#scrim').hidden=true;$('#sheet').hidden=true;setFab(S.tab==='ajustes');draft=null;if(S.pendingRender)render()}
 function readSheet(){
   if(!draft)return;const g=id=>{const el=$('#'+id);return el?el.value:undefined};
   const map={f_desc:'descricao',f_valor:'valor',f_cat:'categoria',f_inicio:'inicio',f_fim:'fim',f_parc:'parcelas'};
@@ -916,6 +934,7 @@ function renderSheet(){
   const atual=t==='parcelado'&&okMonth(draft.inicio)?mDiff(draft.inicio,S.mes)+1:1;
   $('#sheet').innerHTML=`<div class="grab"></div><form id="sheetForm" novalidate>
     <div class="head"><h2 id="sheetTitle">${editing?'Editar':'Novo'} ${isG?'gasto':'renda'}</h2><button type="button" class="close" data-act="sheet-close" aria-label="Fechar">×</button></div>
+    ${draft.ouvido?`<div class="banner" style="border-style:solid"><span>Entendi: <i>“${esc(draft.ouvido)}”</i></span><span class="hint">Confira e toque em Salvar</span></div>`:''}
     ${editing?'':`<div class="seg" role="group" aria-label="Gasto ou renda"><button type="button" data-act="sheet-col" data-v="gastos" aria-pressed="${isG}">Gasto</button><button type="button" data-act="sheet-col" data-v="rendas" aria-pressed="${!isG}">Renda</button></div>`}
     <div class="field"><span class="flabel">Tipo</span><div class="seg" role="group" aria-label="Tipo">${tipos.map(([k,l])=>`<button type="button" data-act="sheet-tipo" data-v="${k}" aria-pressed="${t===k}">${l}</button>`).join('')}</div></div>
     <div class="field"><label for="f_desc">Descrição</label><input class="inp" id="f_desc" value="${esc(draft.descricao)}" placeholder="${isG?'Ex.: Aluguel, Mercado, Geladeira':'Ex.: Salário, Freelance'}" autocomplete="off"></div>
@@ -961,6 +980,147 @@ async function submitSheet(){
   catch(e){falha(e)}
 }
 
+/* ---------- Lançar falando ---------- */
+// Reconhecimento de voz do próprio navegador (Chrome, Safari). Sem ele, a frase é escrita (o teclado do celular também dita).
+const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+let rec=null;
+const semAcento=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+const NUM_PAL={zero:0,um:1,uma:1,dois:2,duas:2,tres:3,quatro:4,cinco:5,seis:6,sete:7,oito:8,nove:9,dez:10,onze:11,doze:12,treze:13,quatorze:14,catorze:14,quinze:15,dezesseis:16,dezessete:17,dezoito:18,dezenove:19,
+  vinte:20,trinta:30,quarenta:40,cinquenta:50,sessenta:60,setenta:70,oitenta:80,noventa:90,cem:100,cento:100,duzentos:200,duzentas:200,trezentos:300,trezentas:300,quatrocentos:400,quinhentos:500,seiscentos:600,setecentos:700,oitocentos:800,novecentos:900};
+// palavras-chave por categoria; vence a palavra mais longa encontrada (ex.: "mercado livre" ganha de "mercado")
+const PALAVRAS_CAT={
+  mercado:'pao paes padaria mercado supermercado feira acougue hortifruti sacolao leite frutas fruta verdura verduras carne frango ovos atacadao assai cafe da manha',
+  restaurantes:'lanche lanches ifood delivery pizza restaurante almoco jantar hamburguer sushi acai sorvete pastel marmita salgado cafeteria lanchonete',
+  transporte:'uber 99 taxi gasolina combustivel etanol onibus metro estacionamento pedagio oficina mecanico pneu ipva moto carro posto',
+  saude:'farmacia remedio remedios medico consulta dentista exame exames hospital academia psicologo',
+  contas:'luz agua internet celular telefone gas conta energia',
+  moradia:'aluguel condominio iptu',
+  assinaturas:'netflix spotify streaming assinatura youtube prime disney globoplay iptv',
+  lazer:'cinema futebol show bar cerveja festa balada ingresso passeio',
+  cuidados:'cabelo salao manicure barbeiro barba unha maquiagem perfume',
+  educacao:'curso livro livros escola faculdade mensalidade apostila',
+  filhos:'pet racao veterinario petshop fralda creche',
+  viagens:'viagem hotel passagem pousada airbnb',
+  casa:'movel moveis cadeira mesa decoracao panela reforma tv televisao geladeira fogao microondas sofa colchao',
+  dividas:'emprestimo juros divida',
+  compras:'roupa roupas sapato tenis loja presente shopee amazon shein mercado livre blusa calca camisa bolsa',
+};
+const CONECT=new Set('de do da dos das com no na nos nas em pra para pro o a os as um uma uns umas e que'.split(' '));
+const TIRAR=['me pagaram','pagaram','a gente','mes que vem','proximo mes','gastei','gastamos','gastou','paguei','pagamos','pagou','comprei','compramos','comprou',
+  'recebi','recebemos','recebeu','ganhei','ganhamos','ganhou','entrou','entraram','caiu','cairam','vendi','vendemos','vendeu','foi','foram','hoje','ontem','agora','eu','nos','la','ai','so','tipo','reais','real','conto','contos','pila','pilas','r$'];
+
+function numBR(x){x=String(x);if(/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(x))x=x.replace(/\./g,'');return parseValor(x)}
+function numerosPorExtenso(t){
+  const w=t.split(/\s+/),out=[];let i=0;
+  while(i<w.length){
+    let j=i,tot=0,cur=0,achou=false,fim=i;
+    while(j<w.length){
+      const x=semAcento(w[j]).replace(/[.,!?]$/,''),prox=semAcento(w[j+1]||'');
+      // "um/uma" só vira número em "um mil", "um real" ou depois de outro número ("vinte e um")
+      if(x in NUM_PAL&&(!['um','uma'].includes(x)||achou||prox==='mil'||/^rea(l|is)/.test(prox))){cur+=NUM_PAL[x];achou=true;fim=j;j++;continue}
+      if(x==='mil'){tot+=(cur||1)*1000;cur=0;achou=true;fim=j;j++;continue}
+      if(x==='e'&&achou&&(semAcento(w[j+1]||'') in NUM_PAL||prox==='mil')){j++;continue}
+      break;
+    }
+    if(achou){out.push(String(tot+cur));i=fim+1}else{out.push(w[i]);i++}
+  }
+  return out.join(' ');
+}
+function tirarFrases(s,lista){s=' '+s+' ';for(const p of lista)s=s.split(' '+p+' ').join(' ');return s.replace(/\s+/g,' ').trim()}
+
+function interpretar(texto){
+  const cru=String(texto||'').trim();
+  let s=' '+numerosPorExtenso(cru.toLowerCase().replace(/r\$\s*/g,' r$ '))+' ';
+  const n=semAcento(s);
+  const renda=/\b(recebi|recebemos|recebeu|ganhei|ganhamos|ganhou|entrou|entraram|caiu|cairam|vendi|vendemos|vendeu|reembolso|bonus|me pagaram)\b/.test(n)&&!/\b(gastei|paguei|comprei|gastamos|pagamos|compramos)\b/.test(n);
+  // parcelas: "em 3 vezes", "10x", "em 10 vezes de 120"
+  let parcelas=0,valorParc=0;
+  s=s.replace(/(?:parcelad[oa]\s+em\s+|dividid[oa]\s+em\s+|em\s+)?(\d+)\s*(?:x|vezes|parcelas)(?=\s|$)(?:\s*de\s*(?:r\$\s*)?(\d[\d.]*(?:,\d{1,2})?))?/,(m,a,b)=>{parcelas=+a;if(b)valorParc=numBR(b);return ' '});
+  s=s.replace(/(\d+)\s*(?:reais|real)?\s*e\s*(\d{1,2})\s*centavos?/,(m,a,b)=>` ${a},${b.padStart(2,'0')} reais `)
+     .replace(/(?:^|\s)(\d{1,2})\s*centavos?/,(m,b)=>` 0,${b.padStart(2,'0')} reais `);
+  const NUM='(\\d{1,3}(?:\\.\\d{3})+(?:,\\d{1,2})?|\\d+(?:,\\d{1,2})?)';
+  const m=s.match(new RegExp('r\\$\\s*'+NUM))||s.match(new RegExp(NUM+'\\s*(?:reais|real|contos?|pilas?)(?=\\s|$|[.,!?])'))||s.match(new RegExp(NUM));
+  let valor=m?numBR(m[1]):0;if(!(valor>0))valor=0;
+  if(m)s=s.replace(m[0],' ');
+  if(parcelas>=2)valor=valorParc||(valor?Math.round(valor/parcelas*100)/100:0);
+  // mês: o atual, "mês que vem" ou um mês dito pelo nome
+  let mes=mesBase();
+  if(/\b(mes que vem|proximo mes)\b/.test(n))mes=addM(mes,1);
+  MESES_L.forEach((nm,i)=>{
+    const re=new RegExp('(?:^|\\s)(?:em|de|no mes de|pra|para)\\s+'+semAcento(nm)+'(?=\\s|$|[.,!?])');
+    if(!re.test(n))return;
+    const y=+mes.slice(0,4);let c=y+'-'+String(i+1).padStart(2,'0');if(mDiff(mesBase(),c)<0)c=(y+1)+c.slice(4);mes=c;
+    s=s.replace(new RegExp('(?:em|de|no m[eê]s de|pra|para)\\s+(?:'+nm+'|'+semAcento(nm)+')'),' ');
+  });
+  // pessoa: nome dito, "a gente"/verbo no plural = casal, senão o dono do aparelho
+  const nA=semAcento(S.cfg.nomeA),nB=semAcento(S.cfg.nomeB);
+  let pessoa=null;
+  if(nA&&(' '+n+' ').includes(' '+nA+' '))pessoa='a';
+  else if(nB&&(' '+n+' ').includes(' '+nB+' '))pessoa='b';
+  else if(/\b(a gente|gastamos|pagamos|compramos|recebemos|ganhamos|vendemos)\b/.test(n)||/(^|\s)nós(\s|$)/.test(s))pessoa='casal';
+  if(!pessoa)pessoa=S.eu||(S.view!=='casal'?S.view:(renda?'a':'casal'));
+  if(renda&&pessoa==='casal')pessoa=S.eu||'a';
+  // descrição: o que sobra sem verbos, valores, nomes e conectivos
+  let d=s.replace(/[.,!?;:"“”]+/g,' ');
+  const tiraSemAcento=[...TIRAR,nA,nB].filter(Boolean);
+  d=d.split(/\s+/).filter(Boolean).filter(w=>!tiraSemAcento.includes(semAcento(w))).join(' ');
+  d=tirarFrases(d,['a gente','me pagaram','mês que vem','próximo mês']);
+  let w=d.split(' ').filter(Boolean);
+  while(w.length&&CONECT.has(semAcento(w[0])))w.shift();
+  while(w.length&&CONECT.has(semAcento(w[w.length-1])))w.pop();
+  // devolve as maiúsculas como foram ditas/escritas ("TV", "Uber")
+  const orig=new Map(cru.split(/\s+/).map(x=>[x.toLowerCase().replace(/[.,!?;:]+$/,''),x.replace(/[.,!?;:]+$/,'')]));
+  w=w.map(x=>{const o=orig.get(x);return o&&o!==o.toLowerCase()?o:x});
+  let descricao=w.join(' ');
+  descricao=descricao?descricao[0].toUpperCase()+descricao.slice(1):(renda?'Entrada extra':'Gasto');
+  // categoria pela palavra-chave mais longa
+  let categoria='outros',melhor=0;const alvo=' '+semAcento(descricao)+' ';
+  for(const[c,lista]of Object.entries(PALAVRAS_CAT)){
+    // expressões de 2 e 3 palavras ("mercado livre", "cafe da manha") contam como uma só
+    const toks=lista.split(' '),kws=[...toks];
+    for(let i=0;i<toks.length-1;i++)kws.push(toks[i]+' '+toks[i+1]);
+    for(let i=0;i<toks.length-2;i++)kws.push(toks[i]+' '+toks[i+1]+' '+toks[i+2]);
+    for(const kw of kws)if(kw.length>melhor&&alvo.includes(' '+kw+' ')){categoria=c;melhor=kw.length}
+  }
+  if(renda)return{col:'rendas',tipo:'extra',descricao,valor,pessoa,inicio:mes,fim:''};
+  return{col:'gastos',tipo:parcelas>=2?'parcelado':'unico',descricao,valor,categoria,pessoa,inicio:mes,fim:'',parcelas:parcelas>=2?parcelas:10};
+}
+
+function openVoz(){
+  S.voz={texto:'',ouvindo:false,erro:''};draft=null;
+  renderVoz();$('#scrim').hidden=false;$('#sheet').hidden=false;setFab(true);
+  if(SR)ouvir();else setTimeout(()=>{const t=$('#vozTxt');if(t)t.focus()},50);
+}
+function renderVoz(){
+  const v=S.voz;if(!v)return;
+  $('#sheet').innerHTML=`<div class="grab"></div><form id="vozForm" novalidate>
+    <div class="head"><h2 id="sheetTitle">Lançar falando</h2><button type="button" class="close" data-act="sheet-close" aria-label="Fechar">×</button></div>
+    ${SR?`<button type="button" class="micbig ${v.ouvindo?'on':''}" data-act="voz-ouvir" aria-pressed="${v.ouvindo}">${icon('mic')}<span>${v.ouvindo?'Ouvindo… toque para parar':'Toque para falar'}</span></button>`:''}
+    <div class="field"><label for="vozTxt">${SR?'O que eu ouvi (dá para corrigir)':'Escreva a frase ou use o microfone do teclado'}</label>
+      <textarea class="inp" id="vozTxt" rows="2" placeholder="Ex.: gastei 10 reais de pão">${esc(v.texto)}</textarea></div>
+    <div class="hint">Exemplos: “gastei 25 de uber”, “recebi 300 de um freela”, “comprei um tênis de 300 em 3 vezes”, “paguei 80 de farmácia em dezembro”.</div>
+    ${v.erro?`<div class="err" role="alert">${esc(v.erro)}</div>`:''}
+    <div class="actions"><span></span><button type="submit" class="btn">Continuar</button></div></form>`;
+}
+function ouvir(){
+  if(!SR||!S.voz)return;
+  try{if(rec)rec.abort()}catch(e){}
+  let final='';const r=new SR();rec=r;
+  r.lang='pt-BR';r.interimResults=true;r.continuous=false;r.maxAlternatives=1;
+  r.onresult=e=>{let t='';for(let i=0;i<e.results.length;i++)t+=e.results[i][0].transcript;if(!S.voz)return;S.voz.texto=t;const el=$('#vozTxt');if(el)el.value=t;if(e.results[e.results.length-1].isFinal)final=t};
+  r.onerror=e=>{if(!S.voz)return;S.voz.erro=['not-allowed','service-not-allowed'].includes(e.error)?'O navegador não liberou o microfone. Permita o acesso ou escreva a frase.':e.error==='no-speech'?'Não ouvi nada. Toque para tentar de novo.':e.error==='aborted'?'':'Não consegui ouvir agora. Tente de novo ou escreva a frase.'};
+  r.onend=()=>{if(rec===r)rec=null;if(!S.voz)return;S.voz.ouvindo=false;if(final.trim()&&!S.voz.erro)entenderVoz(final);else renderVoz()};
+  S.voz.ouvindo=true;S.voz.erro='';S.voz.texto='';renderVoz();
+  try{r.start()}catch(e){S.voz.ouvindo=false;S.voz.erro='Não consegui ligar o microfone. Escreva a frase.';renderVoz()}
+}
+function entenderVoz(txt){
+  txt=String(txt||'').trim();
+  if(!txt){S.voz.erro='Fale ou escreva uma frase primeiro.';renderVoz();return}
+  const d=interpretar(txt);S.voz=null;
+  openSheet(d.col,{...d,valor:d.valor||0});
+  draft.valor=d.valor?fmtValor(d.valor):'';draft.ouvido=txt;renderSheet();
+}
+
 /* ---------- Eventos ---------- */
 document.addEventListener('click',async e=>{
   const b=e.target.closest('[data-act]');if(!b)return;
@@ -971,6 +1131,9 @@ document.addEventListener('click',async e=>{
     case 'mes':S.mes=addM(S.mes,+v);render();break;
     case 'hoje':S.mes=mesBase();render();break;
     case 'sair-planilha':sairPlanilha();break;
+    case 'voz':openVoz();break;
+    case 'voz-ouvir':if(S.voz&&S.voz.ouvindo){try{rec&&rec.stop()}catch(_){}}else ouvir();break;
+    case 'eu':S.eu=v||'';savePrefs();render();break;
     case 'tema':S.tema=temaAtual()==='escuro'?'claro':'escuro';aplicarTema();savePrefs();render();break;
     case 'view':S.view=v;savePrefs();render();break;
     case 'lanc':S.lanc=v;S.filtro='mes';render();break;
@@ -1022,6 +1185,7 @@ document.addEventListener('click',async e=>{
 });
 document.addEventListener('submit',e=>{
   if(e.target.id==='sheetForm'){e.preventDefault();submitSheet()}
+  if(e.target.id==='vozForm'){e.preventDefault();try{if(rec)rec.abort()}catch(_){}entenderVoz($('#vozTxt').value)}
   if(e.target.id==='loginForm'){e.preventDefault();const i=$('#senhaInp'),s=i.value.trim();i.blur();if(s)entrarPlanilha(s)}
 });
 document.addEventListener('input',e=>{
@@ -1039,7 +1203,7 @@ document.addEventListener('change',e=>{
   t.blur();salvarCfg();
 });
 document.addEventListener('focusout',()=>{setTimeout(()=>{if(S.pendingRender&&!$('#main').contains(document.activeElement))render()},0)});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&draft)closeSheet()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&(draft||S.voz))closeSheet()});
 let rzT=0;addEventListener('resize',()=>{clearTimeout(rzT);rzT=setTimeout(()=>{if(S.tab==='projecao')render()},200)});
 
 boot();
