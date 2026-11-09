@@ -226,6 +226,7 @@ tr.cur td{background:var(--surface-2)}
 .plan tr.tot td:first-child{background:var(--surface-2)}
 .plan td.neg{color:var(--bad)}
 .plan .seta{display:inline-block;width:14px;color:var(--num)}
+.plan td.aj{color:var(--num);text-decoration:underline dotted;text-underline-offset:3px}
 .plan tr.fat td:first-child{font-weight:600}
 .plan tr.sub td{font-size:11.5px;color:var(--muted)}
 .plan tr.sub td:first-child{padding-left:30px}
@@ -406,14 +407,16 @@ function gastoAtivo(g,m){
   return(!g.fim||mDiff(m,g.fim)>=0)?{}:null;
 }
 function fimParcelas(g){return addM(g.inicio,g.parcelas-1)}
-function rendaDe(p,m,d){return d.rendas.filter(r=>r.pessoa===p&&rendaAtiva(r,m)).reduce((s,r)=>s+(+r.valor||0),0)}
+// valor do mês: o ajuste daquele mês, se houver, senão o valor normal
+function valorEm(x,m){const a=x&&x.ajustes;return a&&a[m]!=null&&isFinite(+a[m])?+a[m]:(+x.valor||0)}
+function rendaDe(p,m,d){return d.rendas.filter(r=>r.pessoa===p&&rendaAtiva(r,m)).reduce((s,r)=>s+valorEm(r,m),0)}
 function fracao(p,m,d){if(d.cfg.divisao==='igual')return .5;const a=rendaDe('a',m,d),b=rendaDe('b',m,d);if(!(a+b))return .5;return(p==='a'?a:b)/(a+b)}
 function parte(g,view,m,d){if(view==='casal'||g.pessoa===view)return 1;if(g.pessoa==='casal')return fracao(view,m,d);return 0}
 function mes(m,view=S.view,d=D()){
   const r={m,renda:0,rendaExtra:0,fixos:0,parcelas:0,unicos:0,gastos:0,cats:{},itens:[],essBase:0};
-  for(const x of d.rendas){if(!rendaAtiva(x,m)||(view!=='casal'&&x.pessoa!==view))continue;r.renda+=+x.valor;if(x.tipo==='extra')r.rendaExtra+=+x.valor}
+  for(const x of d.rendas){if(!rendaAtiva(x,m)||(view!=='casal'&&x.pessoa!==view))continue;r.renda+=valorEm(x,m);if(x.tipo==='extra')r.rendaExtra+=valorEm(x,m)}
   for(const g of d.gastos){
-    const a=gastoAtivo(g,m);if(!a)continue;const f=parte(g,view,m,d);if(!f)continue;const v=g.valor*f;
+    const a=gastoAtivo(g,m);if(!a)continue;const f=parte(g,view,m,d);if(!f)continue;const v=valorEm(g,m)*f;
     r[g.tipo==='fixo'?'fixos':g.tipo==='parcelado'?'parcelas':'unicos']+=v;r.gastos+=v;
     r.cats[g.categoria]=(r.cats[g.categoria]||0)+v;
     if(g.tipo!=='unico'&&(CAT[g.categoria]?.grupo==='essencial'||g.tipo==='parcelado'))r.essBase+=v;
@@ -479,7 +482,7 @@ function sugestoes(){
   for(let k=1;k<=6;k++){
     const m=addM(S.mes,k);
     for(const g of d.gastos){
-      if(g.observacao||g.tipo!=='unico'||g.inicio!==m)continue;const v=g.valor*parte(g,S.view,m,d);
+      if(g.observacao||g.tipo!=='unico'||g.inicio!==m)continue;const v=valorEm(g,m)*parte(g,S.view,m,d);
       if(v<Math.max(300,r.renda*.05))continue;
       out.push({titulo:`Provisionar ${g.descricao}`,texto:`${brl0(v)} em ${mLabel(m)}. Guardar ${brl0(v/(k+1))} por mês desde já evita aperto quando chegar.`,eco:0,prov:true});
     }
@@ -528,6 +531,7 @@ async function api(acao,extra={}){
   try{r=await fetch(PLANILHA_URL,{method:'POST',body:JSON.stringify({senha:plan.senha,acao,...extra})});x=await r.json()}
   catch(e){throw{code:'rede'}}
   if(!x||!x.ok)throw{code:(x&&x.erro)||'erro'};
+  plan.versao=+x.versao||1;
   return x;
 }
 function aplicar(x){
@@ -573,7 +577,8 @@ function telaSenha(){
 }
 
 function falha(e){
-  if(e&&e.code==='rede')toast('Sem conexão com a planilha. Nada foi salvo; tente de novo.');
+  if(e&&e.code==='script_antigo')toast('Para mudar o valor de um mês só, atualize o script da planilha (veja Ajustes).');
+  else if(e&&e.code==='rede')toast('Sem conexão com a planilha. Nada foi salvo; tente de novo.');
   else if(e&&e.code==='senha')toast('Senha incorreta. Entre de novo.');
   else if(e&&e.code==='invalid_argument')toast('Seu acesso a esta página é só de leitura.');
   else if(e&&e.code==='quota_exceeded')toast('Limite de armazenamento atingido. Apague lançamentos antigos.');
@@ -582,6 +587,8 @@ function falha(e){
 async function gravar(col,obj){
   const id=obj.id||uid();const body={...obj,atualizadoEm:Date.now()};delete body.id;
   if(S.modo==='planilha'){
+    // o script antigo (versão 1) não tem a coluna de ajustes e os jogaria fora sem avisar
+    if(body.ajustes&&Object.keys(body.ajustes).length&&(plan.versao||1)<2)throw{code:'script_antigo'};
     const item={id,...body},arr=S[col],i=arr.findIndex(x=>x.id===id);if(i>=0)arr[i]=item;else arr.push(item);render();
     await escrever('gravar',{col,item});
   }
@@ -756,7 +763,7 @@ function viewLanc(){
   const ativo=x=>isG?!!gastoAtivo(x,S.mes):rendaAtiva(x,S.mes);
   itens=S.filtro==='mes'?itens.filter(ativo):S.filtro==='obs'?itens.filter(x=>x.observacao):itens.filter(x=>x.tipo===S.filtro);
   itens.sort((a,b)=>(ativo(b)-ativo(a))||(b.valor-a.valor));
-  const val=x=>isG?x.valor*parte(x,S.view,S.mes,d):+x.valor;
+  const val=x=>valorEm(x,S.mes)*(isG?parte(x,S.view,S.mes,d):1);
   const total=S.filtro==='obs'?itens.reduce((s,x)=>s+(+x.valor||0),0):itens.filter(ativo).reduce((s,x)=>s+val(x),0);
   const linhaL=x=>{
     const at=ativo(x),f=isG?parte(x,S.view,S.mes,d):1;
@@ -764,7 +771,7 @@ function viewLanc(){
       :`${esc(nome(x.pessoa))} · ${x.tipo==='extra'?'extra em '+mShort(x.inicio):'mensal'+(x.fim?' até '+mShort(x.fim):'')}`;
     return `<button type="button" class="row ${at?'':'off'}" data-act="edit" data-col="${isG?'gastos':'rendas'}" data-id="${esc(x.id)}">
       <div style="min-width:0"><div class="d">${esc(x.descricao)}</div><div class="m">${meta}</div></div>
-      <div class="v">${brl0(x.valor)}${f<1&&f>0?`<small>sua parte ${brl0(x.valor*f)}</small>`:''}${statusPill(x,at)}</div></button>`};
+      <div class="v">${brl0(valorEm(x,S.mes))}${x.ajustes&&x.ajustes[S.mes]!=null?`<small>neste mês · normal ${brl0(x.valor)}</small>`:''}${f<1&&f>0?`<small>sua parte ${brl0(valorEm(x,S.mes)*f)}</small>`:''}${statusPill(x,at)}</div></button>`};
   // faturas de cartão: uma linha com o total do mês, no lugar do primeiro lançamento do cartão
   const fats=isG&&S.filtro!=='obs'?faturas(itens):{},feitas=new Set();
   const rows=itens.map(x=>{
@@ -837,12 +844,12 @@ function viewPlanilha(){
     return algum?`<tr class="item" data-act="edit" data-col="${col}" data-id="${esc(x.id)}"><td title="${esc(x.descricao)}">${esc(x.descricao)}</td>${tds}<td class="sit">${esc(sit+dono(x))}</td></tr>`:'';
   };
   const celG=g=>m=>{
-    if(gastoAtivo(g,m)){const v=g.valor*parte(g,S.view,m,d);return{v,t:num2(v),cls:'v'}}
+    if(gastoAtivo(g,m)){const v=valorEm(g,m)*parte(g,S.view,m,d);return{v,t:num2(v),cls:'v'+(g.ajustes&&g.ajustes[m]!=null?' aj':'')}}
     if(g.tipo==='parcelado'&&mDiff(fimParcelas(g),m)>0)return{t:'quitado',cls:'q'};
     return{t:'–',cls:'na'};
   };
   const celObs=g=>m=>g.inicio===m?{v:0,t:num2(g.valor),cls:'na'}:{t:'–',cls:'na'};
-  const celR=r=>m=>rendaAtiva(r,m)?{v:+r.valor,t:num2(r.valor),cls:'v'}:{t:'–',cls:'na'};
+  const celR=r=>m=>rendaAtiva(r,m)?{v:valorEm(r,m),t:num2(valorEm(r,m)),cls:'v'+(r.ajustes&&r.ajustes[m]!=null?' aj':'')}:{t:'–',cls:'na'};
   const ord=(a,b)=>b.valor-a.valor;
   const gs=d.gastos.filter(vis);
   // faturas de cartão: uma linha com o total do mês; tocando, abre os lançamentos que a compõem
@@ -852,7 +859,7 @@ function viewPlanilha(){
     const aberto=S.abertos.has(k),fim=fimFatura(mem);let algum=false;
     const tds=ms.map(m=>{
       if(fora(m))return `<td class="na${cc(m)}">·</td>`;
-      let v=0,at=false;for(const g of mem)if(gastoAtivo(g,m)){v+=g.valor*parte(g,S.view,m,d);at=true}
+      let v=0,at=false;for(const g of mem)if(gastoAtivo(g,m)){v+=valorEm(g,m)*parte(g,S.view,m,d);at=true}
       if(at){algum=true;return `<td class="v${cc(m)}">${num2(v)}</td>`}
       return mDiff(fim,m)>0?`<td class="q${cc(m)}">quitado</td>`:`<td class="na${cc(m)}">–</td>`;
     }).join('');
@@ -997,6 +1004,7 @@ function viewAnalise(){
 function viewAjustes(){
   const c=S.cfg,armed=S.wipeArmed;
   return `
+  ${S.modo==='planilha'&&(plan.versao||1)<2?`<div class="alert atencao"><div><div class="t">Atualize o script da planilha</div><div class="x">Para mudar o valor de uma conta só em um mês, a planilha precisa da versão nova do script (coluna ajustes). O passo a passo está no README do repositório, em “Atualizar o script”.</div></div></div>`:''}
   <section class="sec"><h2>Ajustes</h2>
   <div class="card settings">
     <div class="f2">
@@ -1059,7 +1067,7 @@ function openSheet(col,item){
   setTimeout(()=>{const f=$('#f_desc');if(f&&!item&&matchMedia('(min-width:860px)').matches)f.focus()},50);
 }
 function setFab(v){$('#fab').hidden=v;$('#mic').hidden=v}
-function closeSheet(){S.voz=null;try{if(rec)rec.abort()}catch(e){}$('#scrim').hidden=true;$('#sheet').hidden=true;setFab(S.tab==='ajustes');draft=null;if(S.pendingRender)render()}
+function closeSheet(){S.voz=null;S.cmd=null;try{if(rec)rec.abort()}catch(e){}$('#scrim').hidden=true;$('#sheet').hidden=true;setFab(S.tab==='ajustes');draft=null;if(S.pendingRender)render()}
 function readSheet(){
   if(!draft)return;const g=id=>{const el=$('#'+id);return el?el.value:undefined};
   const map={f_desc:'descricao',f_valor:'valor',f_cat:'categoria',f_inicio:'inicio',f_fim:'fim',f_parc:'parcelas'};
@@ -1081,6 +1089,7 @@ function renderSheet(){
   $('#sheet').innerHTML=`<div class="grab"></div><form id="sheetForm" novalidate>
     <div class="head"><h2 id="sheetTitle">${editing?'Editar':'Novo'} ${isG?'gasto':'renda'}</h2><button type="button" class="close" data-act="sheet-close" aria-label="Fechar">×</button></div>
     ${draft.ouvido?`<div class="banner" style="border-style:solid"><span>Entendi: <i>“${esc(draft.ouvido)}”</i></span><span class="hint">Confira e toque em Salvar</span></div>`:''}
+    ${draft.aviso?`<div class="alert atencao"><div><div class="x">${esc(draft.aviso)}</div></div></div>`:''}
     ${editing?'':`<div class="seg" role="group" aria-label="Gasto ou renda"><button type="button" data-act="sheet-col" data-v="gastos" aria-pressed="${isG}">Gasto</button><button type="button" data-act="sheet-col" data-v="rendas" aria-pressed="${!isG}">Renda</button></div>`}
     <div class="field"><span class="flabel">Tipo</span><div class="seg" role="group" aria-label="Tipo">${tipos.map(([k,l])=>`<button type="button" data-act="sheet-tipo" data-v="${k}" aria-pressed="${t===k}">${l}</button>`).join('')}</div></div>
     <div class="field"><label for="f_desc">Descrição</label><input class="inp" id="f_desc" value="${esc(draft.descricao)}" placeholder="${isG?'Ex.: Aluguel, Mercado, Geladeira':'Ex.: Salário, Freelance'}" autocomplete="off"></div>
@@ -1100,6 +1109,7 @@ function renderSheet(){
     <div class="field"><span class="flabel">${isG?'De quem é o gasto':'De quem é a renda'}</span><div class="seg" role="group" aria-label="Pessoa">${pessoas.map(p=>`<button type="button" data-act="sheet-pessoa" data-v="${p}" aria-pressed="${draft.pessoa===p}">${esc(nome(p))}</button>`).join('')}</div></div>
     ${isG?`<div class="field"><span class="flabel">Entra nas contas?</span><div class="seg" role="group" aria-label="Entra nas contas"><button type="button" data-act="sheet-obs" data-v="0" aria-pressed="${!draft.observacao}">Sim</button><button type="button" data-act="sheet-obs" data-v="1" aria-pressed="${!!draft.observacao}">Em observação</button></div>
       ${draft.observacao?'<div class="hint">Fica anotado, mas não pesa em nenhum mês até vocês definirem.</div>':''}</div>`:''}
+    ${draft.ajustes&&Object.keys(draft.ajustes).length?`<div class="banner" style="border-style:solid"><span class="hint">Valor diferente em ${Object.entries(draft.ajustes).sort().map(([m,v])=>`${mShort(m)} (${brl(v)})`).join(', ')}.</span><button type="button" class="link" data-act="sheet-sem-ajustes">Voltar ao valor normal</button></div>`:''}
     ${sheetErr?`<div class="err" role="alert">${esc(sheetErr)}</div>`:''}
     <div class="actions">
       ${editing?`<button type="button" class="btn danger ${delArmed?'armed':''}" data-act="sheet-del">${delArmed?'Confirmar exclusão':'Excluir'}</button>`:'<span></span>'}
@@ -1118,6 +1128,7 @@ async function submitSheet(){
   const o={id:draft.id,descricao:draft.descricao.trim(),valor:Math.round(v*100)/100,tipo:draft.tipo,pessoa:draft.pessoa,inicio:draft.inicio};
   if(isG)o.categoria=draft.categoria;
   if(isG&&draft.observacao)o.observacao=true;
+  if(draft.ajustes&&Object.keys(draft.ajustes).length)o.ajustes=draft.ajustes;
   if(draft.tipo==='parcelado')o.parcelas=parseInt(draft.parcelas);
   if((draft.tipo==='fixo'||draft.tipo==='fixa')&&okMonth(draft.fim))o.fim=draft.fim;
   if(!isG&&!['a','b'].includes(o.pessoa))o.pessoa='a';
@@ -1248,7 +1259,7 @@ function renderVoz(){
     ${SR?`<button type="button" class="micbig ${v.ouvindo?'on':''}" data-act="voz-ouvir" aria-pressed="${v.ouvindo}">${icon('mic')}<span>${v.ouvindo?'Ouvindo… toque para parar':'Toque para falar'}</span></button>`:''}
     <div class="field"><label for="vozTxt">${SR?'O que eu ouvi (dá para corrigir)':'Escreva a frase ou use o microfone do teclado'}</label>
       <textarea class="inp" id="vozTxt" rows="2" placeholder="Ex.: gastei 10 reais de pão">${esc(v.texto)}</textarea></div>
-    <div class="hint">Exemplos: “gastei 25 de uber”, “recebi 300 de um freela”, “comprei um tênis de 300 em 3 vezes”, “paguei 80 de farmácia em dezembro”.</div>
+    <div class="hint">Para lançar: “gastei 25 de uber”, “recebi 300 de um freela”, “comprei um tênis de 300 em 3 vezes”.<br>Para mudar ou quitar: “a luz desse mês veio 230”, “o aluguel agora é 950”, “quitei o empréstimo do Luis Carlos”.</div>
     ${v.erro?`<div class="err" role="alert">${esc(v.erro)}</div>`:''}
     <div class="actions"><span></span><button type="submit" class="btn">Continuar</button></div></form>`;
 }
@@ -1266,9 +1277,162 @@ function ouvir(){
 function entenderVoz(txt){
   txt=String(txt||'').trim();
   if(!txt){S.voz.erro='Fale ou escreva uma frase primeiro.';renderVoz();return}
-  const d=interpretar(txt);S.voz=null;
+  const c=interpretarComando(txt);
+  if(c){openCmd(c);return}
+  novoPorVoz(txt);
+}
+function novoPorVoz(txt){
+  const d=interpretar(txt);S.voz=null;S.cmd=null;
   openSheet(d.col,{...d,valor:d.valor||0});
-  draft.valor=d.valor?fmtValor(d.valor):'';draft.ouvido=txt;renderSheet();
+  draft.valor=d.valor?fmtValor(d.valor):'';draft.ouvido=txt;
+  // "paguei 230 de luz" com a Luz já cadastrada: avisa que vai somar, em vez de trocar o valor
+  const igual=d.col==='gastos'&&D().gastos.find(g=>g.tipo==='fixo'&&!g.observacao&&semAcento(g.descricao)===semAcento(d.descricao)&&gastoAtivo(g,d.inicio));
+  if(igual)draft.aviso=`${igual.descricao} já conta ${brl(valorEm(igual,d.inicio))} por mês. Salvando, este gasto soma por cima. Para trocar o valor dela, diga “a ${igual.descricao.toLowerCase()} veio ${d.valor||'230'}”.`;
+  renderSheet();
+}
+
+/* ---------- Mudar valor e quitar falando ---------- */
+const RX_QUITAR=/\b(quitei|quitamos|quitou|quitad[oa]s?|quitar|terminei de pagar|terminamos de pagar|acabei de pagar|acabamos de pagar|cancelei|cancelamos|cancelou|cancelad[oa]s?|cancelar|encerrei|encerramos|encerrad[oa]s?|ultima parcela)\b/;
+const RX_ALTERAR=/\b(mudei|mudou|mudar|muda|alterei|alterou|alterar|altera|agora (e|eh|esta|ta|custa|vai ser|sao|fica)|passou (a ser|pra|para)|passa a ser|aumentou|aumentaram|subiu|subiram|diminuiu|diminuiram|baixou|baixaram|caiu pra|caiu para|veio|vieram|ficou|ficaram|deu|corrigir|corrige|na verdade (e|foi))\b/;
+const RX_DIANTE=/\b(agora|a partir|daqui pra frente|daqui para frente|em diante|passou a|passa a|aumentou|aumentaram|diminuiu|diminuiram|baixou|baixaram|subiu|subiram|reajust\w*|todo mes)\b/;
+const RX_SOMES=/\b(desse mes|deste mes|nesse mes|neste mes|esse mes|este mes|so esse|so este|so nesse|so neste|veio|vieram|deu)\b/;
+const PARADAS=new Set('o a os as de do da dos das no na nos nas em pra para pro que e um uma meu minha nosso nossa nossos nossas conta contas valor mes reais real esse este desse deste nesse neste agora foi veio vieram ficou ficaram deu ele ela la ai so tambem com ja pela pelo todo toda quitei quitamos quitou quitada quitado quitar cancelei cancelamos cancelou cancelada cancelado cancelar encerrei encerrada encerrado terminei terminamos acabei acabamos pagar paguei mudei mudou mudar alterei alterou alterar aumentou diminuiu baixou subiu passou partir diante frente ultima parcela parcelas verdade custa'.split(' '));
+const tokens=s=>semAcento(s).replace(/[^a-z0-9 ]+/g,' ').split(/\s+/).filter(w=>w.length>=3&&!PARADAS.has(w)&&!/^\d+$/.test(w));
+
+// tudo o que dá para mudar ou quitar: faturas de cartão, gastos e rendas
+function candidatos(){
+  const d=D(),out=[],fats=faturas(d.gastos.filter(g=>!g.observacao));
+  for(const[k,mem]of Object.entries(fats))out.push({key:'f:'+k,rot:k+' (fatura)',grupo:'Faturas de cartão',texto:k+' fatura '+mem.map(g=>nome(g.pessoa)).join(' '),mem,tipo:'fatura'});
+  for(const g of d.gastos)if(!g.observacao)out.push({key:'g:'+g.id,rot:g.descricao+' · '+nome(g.pessoa),grupo:'Gastos',texto:g.descricao+' '+nome(g.pessoa),x:g,col:'gastos',tipo:g.tipo});
+  for(const r of d.rendas)out.push({key:'r:'+r.id,rot:r.descricao+' · '+nome(r.pessoa),grupo:'Rendas',texto:r.descricao+' '+nome(r.pessoa)+' renda',x:r,col:'rendas',tipo:r.tipo==='extra'?'unico':'fixo'});
+  return out;
+}
+function melhorAlvo(txt,cands){
+  const meses=new Set(MESES_L.map(semAcento)),pt=tokens(txt).filter(w=>!meses.has(w));
+  let best=null;
+  for(const c of cands){
+    const ct=tokens(c.texto);let s=0;
+    for(const w of pt){
+      if(ct.includes(w))s+=2;
+      else if(w.length>=4&&ct.some(t=>t.length>=4&&(t.startsWith(w)||w.startsWith(t))))s+=1.5;
+    }
+    if(!s)continue;
+    if(c.tipo==='fatura')s+=.5;
+    if(c.col==='gastos'&&gastoAtivo(c.x,mesBase()))s+=.25;
+    if(c.col==='rendas'&&rendaAtiva(c.x,mesBase()))s+=.25;
+    if(!best||s>best.score)best={...c,score:s};
+  }
+  return best;
+}
+function interpretarComando(txt){
+  const n=' '+semAcento(txt)+' ',quitar=RX_QUITAR.test(n),alterar=!quitar&&RX_ALTERAR.test(n);
+  if(!quitar&&!alterar)return null;
+  const best=melhorAlvo(txt,candidatos());
+  if(alterar&&!(best&&best.score>=2))return null; // não achou a conta: segue como lançamento novo
+  const p=interpretar(txt);
+  return{acao:quitar?'quitar':'alterar',alvo:best?best.key:'',valor:p.valor||'',mes:p.inicio,escopo:RX_DIANTE.test(n)?'diante':RX_SOMES.test(n)?'mes':null,ouvido:txt};
+}
+
+const r2=v=>Math.round(v*100)/100;
+const ativoEm=(x,col,m)=>col==='rendas'?rendaAtiva(x,m):!!gastoAtivo(x,m);
+const totalFatura=(mem,m)=>mem.reduce((s,g)=>s+(gastoAtivo(g,m)?valorEm(g,m):0),0);
+const quitavel=(x,m)=>(x.tipo==='parcelado'&&mDiff(x.inicio,m)>=0&&mDiff(x.inicio,m)+1<x.parcelas)||((x.tipo==='fixo'||x.tipo==='fixa')&&mDiff(x.inicio,m)>=0&&!(x.fim&&mDiff(x.fim,m)>=0));
+function cmdInfo(){
+  const k=S.cmd,cands=candidatos(),c=cands.find(o=>o.key===k.alvo)||null,m=k.mes,alt=k.acao==='alterar';
+  let esc0=k.escopo;
+  if(c&&alt){if(c.tipo==='fatura')esc0='mes';else if(c.tipo==='unico')esc0='diante';else if(!esc0)esc0=['contas','mercado'].includes(c.x.categoria)?'mes':'diante'}
+  const v=parseValor(k.valor),novo=isFinite(v)&&v>=0?brl(v):'…';
+  let prev='',bloq='';
+  if(!c)prev='Escolha a conta na lista.';
+  else if(alt){
+    if(c.tipo==='fatura')prev=`Fatura de ${mLabel(m)}: ${brl(totalFatura(c.mem,m))} → ${novo}. A diferença entra como um ajuste dentro da fatura.`;
+    else if(c.tipo==='unico')prev=`${brl(c.x.valor)} → ${novo} (${mLabel(c.x.inicio)}).`;
+    else{
+      if(!ativoEm(c.x,c.col,m))bloq=`${c.x.descricao} não conta em ${mLabel(m)}. Escolha um mês em que ela está ativa.`;
+      prev=esc0==='mes'?`Só em ${mLabel(m)}: ${brl(valorEm(c.x,m))} → ${novo}. Os outros meses continuam ${brl(c.x.valor)}.`
+        :`De ${mLabel(m)} em diante: ${brl(c.x.valor)} → ${novo}. Os meses anteriores ficam como estavam.`;
+    }
+  }else{
+    const lista=c.tipo==='fatura'?c.mem:[c.x],prox=addM(m,1),af=lista.filter(x=>quitavel(x,m));
+    const libera=af.reduce((s,x)=>s+(ativoEm(x,c.tipo==='fatura'?'gastos':c.col,prox)?valorEm(x,prox):0),0);
+    if(!af.length)bloq=c.tipo==='unico'?'Gasto único já conta só no mês dele: não há o que quitar. Para apagar, toque nele em Lançamentos.':`Nada muda: ${c.rot} já termina até ${mLabel(m)} ou ainda não começou.`;
+    else prev=`Último mês que conta: ${mLabel(m)}. ${c.col==='rendas'?'Deixa de entrar':'Libera'} ${brl(libera)} por mês a partir de ${mLabel(prox)}.`+(c.col==='gastos'&&c.x.tipo==='parcelado'?` Antes ia até ${mLabel(fimParcelas(c.x))}.`:'');
+  }
+  return{c,cands,esc0,prev,bloq,alt};
+}
+function openCmd(c){
+  if(isExemplo()){toast('Saia do exemplo primeiro: toque em Começar com nossos dados.');closeSheet();return}
+  S.voz=null;draft=null;S.cmd={...c,valor:c.valor?fmtValor(c.valor):'',err:''};
+  renderCmd();$('#scrim').hidden=false;$('#sheet').hidden=false;setFab(true);
+}
+function readCmd(){
+  const g=id=>{const el=$('#'+id);return el?el.value:undefined};
+  const a=g('c_alvo'),v=g('c_valor'),m=g('c_mes');
+  if(a!==undefined)S.cmd.alvo=a;if(v!==undefined)S.cmd.valor=v;if(m)S.cmd.mes=m;
+}
+function renderCmd(){
+  const k=S.cmd;if(!k)return;
+  const{c,cands,esc0,prev,bloq,alt}=cmdInfo(),m=k.mes;
+  const grupos=['Faturas de cartão','Gastos','Rendas'].map(gr=>{const os=cands.filter(o=>o.grupo===gr);return os.length?`<optgroup label="${gr}">${os.map(o=>`<option value="${esc(o.key)}" ${o.key===k.alvo?'selected':''}>${esc(o.rot)}</option>`).join('')}</optgroup>`:''}).join('');
+  $('#sheet').innerHTML=`<div class="grab"></div><form id="cmdForm" novalidate>
+    <div class="head"><h2 id="sheetTitle">${alt?'Mudar valor':'Quitar ou encerrar'}</h2><button type="button" class="close" data-act="sheet-close" aria-label="Fechar">×</button></div>
+    ${k.ouvido?`<div class="banner" style="border-style:solid"><span>Entendi: <i>“${esc(k.ouvido)}”</i></span><span class="hint">Confira e toque em Salvar</span></div>`:''}
+    <div class="seg" role="group" aria-label="O que fazer"><button type="button" data-act="cmd-acao" data-v="alterar" aria-pressed="${alt}">Mudar valor</button><button type="button" data-act="cmd-acao" data-v="quitar" aria-pressed="${!alt}">Quitar / encerrar</button></div>
+    <div class="field"><label for="c_alvo">Conta</label><select class="inp" id="c_alvo"><option value="">Escolha a conta…</option>${grupos}</select></div>
+    ${alt?`<div class="f2">
+        <div class="field"><label for="c_valor">Novo valor (R$)</label><input class="inp money" id="c_valor" inputmode="decimal" value="${esc(k.valor)}" placeholder="0,00"></div>
+        <div class="field"><label for="c_mes">Mês</label><input class="inp" type="month" id="c_mes" value="${esc(m)}"></div></div>
+      ${c&&c.tipo!=='fatura'&&c.tipo!=='unico'?`<div class="field"><span class="flabel">Vale para</span><div class="seg" role="group" aria-label="Vale para">
+        <button type="button" data-act="cmd-escopo" data-v="mes" aria-pressed="${esc0==='mes'}">Só ${mShort(m)}</button>
+        <button type="button" data-act="cmd-escopo" data-v="diante" aria-pressed="${esc0==='diante'}">De ${mShort(m)} em diante</button></div></div>`:''}`
+    :`<div class="field" style="max-width:280px"><label for="c_mes">Último mês que conta</label><input class="inp" type="month" id="c_mes" value="${esc(m)}"></div>`}
+    <div class="hint" id="c_prev" style="font-size:14px">${esc(prev)}</div>
+    ${bloq?`<div class="err" role="alert">${esc(bloq)}</div>`:''}${k.err?`<div class="err" role="alert">${esc(k.err)}</div>`:''}
+    <div class="actions">${k.ouvido?`<button type="button" class="btn ghost" data-act="cmd-novo">É um gasto novo</button>`:'<span></span>'}<button type="submit" class="btn" ${bloq||!c?'disabled style="opacity:.5"':''}>Salvar</button></div>
+  </form>`;
+  k.escopo=esc0;
+}
+async function salvarCmd(){
+  readCmd();const k=S.cmd,{c,bloq,alt}=cmdInfo(),m=k.mes,d=D();
+  if(!c||bloq)return;
+  const falhar=t=>{k.err=t;renderCmd()};
+  try{
+    if(alt){
+      const v=parseValor(k.valor);if(!(isFinite(v)&&v>=0))return falhar('Informe o novo valor.');
+      if(c.tipo==='fatura'){
+        // fatura: a diferença vira um lançamento de ajuste dentro do próprio cartão, só naquele mês
+        const nomeC=c.key.slice(2),id='aj_'+semAcento(nomeC).replace(/[^a-z0-9]+/g,'')+'_'+m.replace('-',''),ex=d.gastos.find(g=>g.id===id);
+        const aj=r2((ex?valorEm(ex,m):0)+(v-totalFatura(c.mem,m)));
+        if(Math.abs(aj)<.005){if(ex)await remover('gastos',id)}
+        else await gravar('gastos',{id,descricao:nomeC+' · ajuste da fatura de '+mShort(m),valor:aj,tipo:'unico',pessoa:c.mem[0].pessoa,categoria:c.mem[0].categoria||'compras',inicio:m});
+      }else{
+        const x=JSON.parse(JSON.stringify(c.x));
+        if(c.tipo==='unico')x.valor=r2(v);
+        else if(k.escopo==='mes'){x.ajustes={...(x.ajustes||{}),[m]:r2(v)};if(Math.abs(v-x.valor)<.005)delete x.ajustes[m]}
+        else{
+          // daqui em diante: muda o valor normal e os meses anteriores (desde o início do app) guardam o valor antigo
+          const aj={...(x.ajustes||{})},ini=inicioApp();let mm=ini&&mDiff(x.inicio,ini)>0?ini:x.inicio;
+          for(;mDiff(mm,m)>0;mm=addM(mm,1))if(aj[mm]==null)aj[mm]=x.valor;
+          delete aj[m];x.valor=r2(v);
+          for(const kk of Object.keys(aj))if(Math.abs(aj[kk]-x.valor)<.005)delete aj[kk];
+          x.ajustes=aj;
+        }
+        if(x.ajustes&&!Object.keys(x.ajustes).length)delete x.ajustes;
+        await gravar(c.col,x);
+      }
+      closeSheet();toast('Valor atualizado');
+    }else{
+      const lista=c.tipo==='fatura'?c.mem:[c.x],col=c.tipo==='fatura'?'gastos':c.col;let n=0;
+      for(const y of lista){
+        if(!quitavel(y,m))continue;
+        const x=JSON.parse(JSON.stringify(y));
+        if(x.tipo==='parcelado')x.parcelas=mDiff(x.inicio,m)+1;else x.fim=m;
+        if(x.ajustes){for(const kk of Object.keys(x.ajustes))if(mDiff(m,kk)>0)delete x.ajustes[kk];if(!Object.keys(x.ajustes).length)delete x.ajustes}
+        await gravar(col,x);n++;
+      }
+      closeSheet();toast(n>1?`${n} lançamentos encerrados em ${mShort(m)}`:`Encerrado em ${mShort(m)}`);
+    }
+  }catch(e){falha(e)}
 }
 
 /* ---------- Eventos ---------- */
@@ -1300,6 +1464,10 @@ document.addEventListener('click',async e=>{
     case 'sheet-col':readSheet();openSheet(v);break;
     case 'sheet-tipo':readSheet();draft.tipo=v;delArmed=false;renderSheet();break;
     case 'sheet-pessoa':readSheet();draft.pessoa=v;renderSheet();break;
+    case 'cmd-acao':readCmd();S.cmd.acao=v;S.cmd.err='';renderCmd();break;
+    case 'cmd-escopo':readCmd();S.cmd.escopo=v;renderCmd();break;
+    case 'cmd-novo':novoPorVoz(S.cmd.ouvido);break;
+    case 'sheet-sem-ajustes':readSheet();delete draft.ajustes;renderSheet();break;
     case 'sheet-obs':readSheet();draft.observacao=v==='1';renderSheet();break;
     case 'ver-obs':S.tab='lancamentos';S.lanc='gastos';S.filtro='obs';render();break;
     case 'sheet-del':
@@ -1338,11 +1506,13 @@ document.addEventListener('click',async e=>{
 });
 document.addEventListener('submit',e=>{
   if(e.target.id==='sheetForm'){e.preventDefault();submitSheet()}
+  if(e.target.id==='cmdForm'){e.preventDefault();salvarCmd()}
   if(e.target.id==='vozForm'){e.preventDefault();try{if(rec)rec.abort()}catch(_){}entenderVoz($('#vozTxt').value)}
   if(e.target.id==='loginForm'){e.preventDefault();const i=$('#senhaInp'),s=i.value.trim();i.blur();if(s)entrarPlanilha(s)}
 });
 document.addEventListener('input',e=>{
   const t=e.target;
+  if(S.cmd&&t.id==='c_valor'){readCmd();const p=$('#c_prev');if(p)p.textContent=cmdInfo().prev;return}
   if(t.id==='simAporte'){const v=parseValor(t.value);S.simAporte=isFinite(v)?v:0;$('#simOut').innerHTML=simOut();return}
   if(!draft)return;
   if(t.id==='f_atual'){const n=parseInt(t.value);if(n>=1){draft.inicio=addM(S.mes,-(n-1));const f=$('#f_inicio');if(f)f.value=draft.inicio}}
@@ -1350,13 +1520,15 @@ document.addEventListener('input',e=>{
     if(t.id==='f_inicio'){const a=$('#f_atual');if(a&&okMonth(draft.inicio))a.value=mDiff(draft.inicio,S.mes)+1}}
 });
 document.addEventListener('change',e=>{
-  const t=e.target;const k=t.dataset.cfg;if(!k)return;
+  const t=e.target;
+  if(S.cmd&&['c_alvo','c_mes'].includes(t.id)){readCmd();S.cmd.err='';renderCmd();return}
+  const k=t.dataset.cfg;if(!k)return;
   if(t.dataset.num){const v=parseValor(t.value);if(!isFinite(v)||v<0){toast('Use apenas números.');t.value=k==='reserva'?fmtValor(S.cfg[k]):S.cfg[k];return}S.cfg[k]=v}
   else S.cfg[k]=t.value.trim().slice(0,30);
   t.blur();salvarCfg();
 });
 document.addEventListener('focusout',()=>{setTimeout(()=>{if(S.pendingRender&&!$('#main').contains(document.activeElement))render()},0)});
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&(draft||S.voz))closeSheet()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&(draft||S.voz||S.cmd))closeSheet()});
 let rzT=0;addEventListener('resize',()=>{clearTimeout(rzT);rzT=setTimeout(()=>{if(S.tab==='projecao')render()},200)});
 
 boot();

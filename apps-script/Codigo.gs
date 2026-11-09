@@ -2,16 +2,19 @@
  * Caixa do Casal — servidor da planilha (Google Apps Script)
  *
  * Guarda as rendas, os gastos e os ajustes do app nas abas desta planilha.
- * Passo a passo completo no arquivo LEIA-ME.md do repositório.
+ * Passo a passo completo no arquivo README.md do repositório.
  *
  * 1. Troque a senha abaixo por uma que só vocês dois saibam.
  * 2. Salve e publique em Implantar > Nova implantação > App da Web.
+ *    Ao atualizar este código depois: Implantar > Gerenciar implantações > lápis > Versão: Nova versão.
  */
 const SENHA = 'troque-esta-senha';
 
+// versão 2: coluna "ajustes" (valor diferente em meses específicos, ex.: {"2026-11":230})
+const VERSAO = 2;
 const ABAS = {
-  rendas: { nome: 'Rendas', campos: ['id', 'descricao', 'valor', 'tipo', 'pessoa', 'inicio', 'fim', 'atualizadoEm'] },
-  gastos: { nome: 'Gastos', campos: ['id', 'descricao', 'valor', 'tipo', 'pessoa', 'categoria', 'inicio', 'fim', 'parcelas', 'observacao', 'atualizadoEm'] },
+  rendas: { nome: 'Rendas', campos: ['id', 'descricao', 'valor', 'tipo', 'pessoa', 'inicio', 'fim', 'atualizadoEm', 'ajustes'] },
+  gastos: { nome: 'Gastos', campos: ['id', 'descricao', 'valor', 'tipo', 'pessoa', 'categoria', 'inicio', 'fim', 'parcelas', 'observacao', 'atualizadoEm', 'ajustes'] },
 };
 const ABA_AJUSTES = 'Ajustes';
 const NUMEROS = ['valor', 'parcelas', 'atualizadoEm'];
@@ -44,7 +47,7 @@ function doPost(e) {
       default: return resposta({ ok: false, erro: 'acao' });
     }
     SpreadsheetApp.flush();
-    return resposta({ ok: true, rendas: lerItens('rendas'), gastos: lerItens('gastos'), cfg: lerAjustes() });
+    return resposta({ ok: true, versao: VERSAO, rendas: lerItens('rendas'), gastos: lerItens('gastos'), cfg: lerAjustes() });
   } finally {
     trava.releaseLock();
   }
@@ -61,8 +64,16 @@ function aba(col) {
     sh.getRange(1, 1, 1, def.campos.length).setValues([def.campos]).setFontWeight('bold');
     sh.setFrozenRows(1);
     // meses como texto (2026-11), para a planilha não virar data
-    MESES.forEach(m => { const c = def.campos.indexOf(m) + 1; if (c) sh.getRange(1, c, sh.getMaxRows(), 1).setNumberFormat('@'); });
+    [...MESES, 'ajustes'].forEach(m => { const c = def.campos.indexOf(m) + 1; if (c) sh.getRange(1, c, sh.getMaxRows(), 1).setNumberFormat('@'); });
   }
+  // planilhas criadas pela versão anterior: acrescenta o cabeçalho das colunas novas
+  const cab = sh.getRange(1, 1, 1, def.campos.length).getValues()[0];
+  def.campos.forEach((k, i) => {
+    if (cab[i] !== k) {
+      sh.getRange(1, i + 1).setValue(k).setFontWeight('bold');
+      if (k === 'ajustes') sh.getRange(1, i + 1, sh.getMaxRows(), 1).setNumberFormat('@');
+    }
+  });
   return sh;
 }
 
@@ -99,8 +110,9 @@ function lerItens(col) {
       if (NUMEROS.includes(k)) v = Number(String(v).replace(',', '.'));
       else if (MESES.includes(k)) v = mesTexto(v);
       else if (k === 'observacao') v = v === true || String(v).toUpperCase() === 'TRUE' || v === 'sim';
+      else if (k === 'ajustes') { try { v = JSON.parse(String(v)); } catch (_) { v = null; } }
       else v = String(v);
-      if (k === 'observacao' && !v) return;
+      if ((k === 'observacao' || k === 'ajustes') && !v) return;
       o[k] = v;
     });
     out.push(o);
@@ -136,6 +148,7 @@ function salvarItem(col, item) {
   const linha = def.campos.map(k => {
     const v = item[k];
     if (k === 'observacao') return v ? true : '';
+    if (k === 'ajustes') return v && typeof v === 'object' && Object.keys(v).length ? JSON.stringify(v) : '';
     return v === undefined || v === null ? '' : v;
   });
   const r = linhaDoId(sh, item.id);

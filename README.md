@@ -41,6 +41,19 @@ apps-script/Codigo.gs  o "servidor" que grava na planilha
 2. Abra o link novo, entre com a senha, vá em **Ajustes**, cole em "Restaurar a partir de uma cópia" e toque em **Restaurar dados colados**.
 3. Confira na planilha: aparecem as abas **Rendas**, **Gastos** e **Ajustes**.
 
+## Atualizar o script
+
+Quando o `apps-script/Codigo.gs` mudar (por exemplo, a versão 2, que permite mudar o valor de uma conta só em um mês):
+
+1. Na planilha: **Extensões → Apps Script**.
+2. **Antes de apagar**, copie a linha `const SENHA = '...';` com a senha de vocês.
+3. Apague tudo e cole o conteúdo novo de `apps-script/Codigo.gs`.
+4. Cole de volta a linha da senha no lugar de `const SENHA = 'troque-esta-senha';`.
+5. Salve (ícone de disquete).
+6. **Implantar → Gerenciar implantações → lápis (editar) → Versão: Nova versão → Implantar**.
+
+Não use "Nova implantação": ela muda o endereço, e aí o `index.html` precisaria ser atualizado. A planilha ganha sozinha a coluna nova (`ajustes`) na primeira vez que o app conversar com ela.
+
 ## No celular
 
 Abram o link do GitHub Pages no navegador, digitem a senha uma vez e adicionem à tela inicial:
