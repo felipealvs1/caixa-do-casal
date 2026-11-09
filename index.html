@@ -225,6 +225,13 @@ tr.cur td{background:var(--surface-2)}
 .plan tr.tot td{font-weight:600;background:var(--surface-2)}
 .plan tr.tot td:first-child{background:var(--surface-2)}
 .plan td.neg{color:var(--bad)}
+.plan .seta{display:inline-block;width:14px;color:var(--num)}
+.plan tr.fat td:first-child{font-weight:600}
+.plan tr.sub td{font-size:11.5px;color:var(--muted)}
+.plan tr.sub td:first-child{padding-left:30px}
+.list .sub{background:var(--surface-2)}
+.list .sub .row{padding-left:30px}
+.row .seta{display:inline-block;width:14px;color:var(--num)}
 .settings{display:grid;gap:18px}
 
 /* Navegação inferior + botão */
@@ -360,7 +367,7 @@ const EXEMPLO={
 
 /* ---------- Estado ---------- */
 const S={cfg:{...DEF_CFG},rendas:[],gastos:[],view:'casal',mes:curMonth(),tab:'resumo',lanc:'gastos',filtro:'mes',
-  exemploOff:false,modo:'conectando',carregado:false,simAporte:null,wipeArmed:false,pendingRender:false};
+  exemploOff:false,modo:'conectando',carregado:false,simAporte:null,wipeArmed:false,pendingRender:false,abertos:new Set()};
 const store={db:null};
 
 /* ---------- Utilidades ---------- */
@@ -751,13 +758,27 @@ function viewLanc(){
   itens.sort((a,b)=>(ativo(b)-ativo(a))||(b.valor-a.valor));
   const val=x=>isG?x.valor*parte(x,S.view,S.mes,d):+x.valor;
   const total=S.filtro==='obs'?itens.reduce((s,x)=>s+(+x.valor||0),0):itens.filter(ativo).reduce((s,x)=>s+val(x),0);
-  const rows=itens.map(x=>{
+  const linhaL=x=>{
     const at=ativo(x),f=isG?parte(x,S.view,S.mes,d):1;
     const meta=isG?`${esc(CAT[x.categoria]?.nome||'Outros')} · ${esc(nome(x.pessoa))} · ${descTipo(x)}`
       :`${esc(nome(x.pessoa))} · ${x.tipo==='extra'?'extra em '+mShort(x.inicio):'mensal'+(x.fim?' até '+mShort(x.fim):'')}`;
     return `<button type="button" class="row ${at?'':'off'}" data-act="edit" data-col="${isG?'gastos':'rendas'}" data-id="${esc(x.id)}">
       <div style="min-width:0"><div class="d">${esc(x.descricao)}</div><div class="m">${meta}</div></div>
-      <div class="v">${brl0(x.valor)}${f<1&&f>0?`<small>sua parte ${brl0(x.valor*f)}</small>`:''}${statusPill(x,at)}</div></button>`}).join('');
+      <div class="v">${brl0(x.valor)}${f<1&&f>0?`<small>sua parte ${brl0(x.valor*f)}</small>`:''}${statusPill(x,at)}</div></button>`};
+  // faturas de cartão: uma linha com o total do mês, no lugar do primeiro lançamento do cartão
+  const fats=isG&&S.filtro!=='obs'?faturas(itens):{},feitas=new Set();
+  const rows=itens.map(x=>{
+    const k=isG&&cartaoDe(x);
+    if(!k||!fats[k])return linhaL(x);
+    if(feitas.has(k))return '';feitas.add(k);
+    const mem=fats[k],tot=mem.filter(ativo).reduce((s,y)=>s+val(y),0),aberto=S.abertos.has(k),fim=fimFatura(mem);
+    const quem=[...new Set(mem.map(g=>g.pessoa))];
+    return `<button type="button" class="row ${tot?'':'off'}" data-act="fatura" data-v="${esc(k)}" aria-expanded="${aberto}">
+      <div style="min-width:0"><div class="d"><span class="seta">${aberto?'▾':'▸'}</span>${esc(k)}</div>
+      <div class="m">Fatura · ${quem.length===1?esc(nome(quem[0]))+' · ':''}${mem.length} lançamentos${fim==='9999-12'?'':' · até '+mShort(fim)}</div></div>
+      <div class="v">${brl(tot)}${tot?'':'<small>nada neste mês</small>'}</div></button>`+
+      (aberto?`<div class="sub">${mem.map(g=>linhaL(semCartao(g,k))).join('')}</div>`:'');
+  }).join('');
   return `
   <div class="sec-h" style="flex-wrap:wrap">
     <div class="seg" role="group" aria-label="Tipo de lançamento">
@@ -770,6 +791,19 @@ function viewLanc(){
   ${itens.length?`<div class="list">${rows}</div>`:`<div class="card empty"><h3>Nenhum${isG?' gasto':'a renda'} aqui</h3><p style="margin:0">Use o botão Lançar para cadastrar.</p></div>`}
   <p class="hint" style="margin:0">Toque em um lançamento para editar ou excluir. Itens esmaecidos não pesam em ${mLabel(S.mes)}.</p>`;
 }
+
+/* ---------- Faturas de cartão ---------- */
+// Lançamentos do mesmo cartão aparecem somados numa linha só (a fatura). O cartão é o começo do nome,
+// antes de " · " ou " (": "Cartão Nubank Maiara · parcelas até ago/27" → "Cartão Nubank Maiara".
+const cartaoDe=g=>{const s=String(g.descricao||''),i=s.search(/ · | \(/);const k=(i>0?s.slice(0,i):s).trim();return /^(cart[aã]o|fatura)\b/i.test(k)?k:''};
+function faturas(lista){const o={};for(const g of lista){const k=cartaoDe(g);if(k)(o[k]=o[k]||[]).push(g)}for(const k in o)if(o[k].length<2)delete o[k];return o}
+// dentro da fatura, o nome sem o cartão: "Cartão Nubank Maiara · parcelas até ago/27" → "Parcelas até ago/27"
+function semCartao(g,k){
+  let r=String(g.descricao||'').slice(k.length).replace(/^\s*(·|\()\s*/,'').replace(/\)\s*$/,'').trim();
+  if(!r)r=g.tipo==='parcelado'?'Parcelas':g.tipo==='unico'?'Avulso':'Mensal';
+  return{...g,descricao:r[0].toUpperCase()+r.slice(1)};
+}
+function fimFatura(mem){const f=mem.map(g=>g.tipo==='parcelado'?fimParcelas(g):g.tipo==='unico'?g.inicio:g.fim||'9999-12').sort();return f[f.length-1]}
 
 /* ---------- Planilha anual (no formato da planilha de gastos do Felipe) ---------- */
 const num2=v=>(+v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -811,11 +845,31 @@ function viewPlanilha(){
   const celR=r=>m=>rendaAtiva(r,m)?{v:+r.valor,t:num2(r.valor),cls:'v'}:{t:'–',cls:'na'};
   const ord=(a,b)=>b.valor-a.valor;
   const gs=d.gastos.filter(vis);
+  // faturas de cartão: uma linha com o total do mês; tocando, abre os lançamentos que a compõem
+  const fats=faturas(gs.filter(g=>!g.observacao)),naFatura=new Set(Object.values(fats).flat());
+  const soltos=gs.filter(g=>!g.observacao&&!naFatura.has(g));
+  const linhaFatura=(k,mem)=>{
+    const aberto=S.abertos.has(k),fim=fimFatura(mem);let algum=false;
+    const tds=ms.map(m=>{
+      if(fora(m))return `<td class="na${cc(m)}">·</td>`;
+      let v=0,at=false;for(const g of mem)if(gastoAtivo(g,m)){v+=g.valor*parte(g,S.view,m,d);at=true}
+      if(at){algum=true;return `<td class="v${cc(m)}">${num2(v)}</td>`}
+      return mDiff(fim,m)>0?`<td class="q${cc(m)}">quitado</td>`:`<td class="na${cc(m)}">–</td>`;
+    }).join('');
+    if(!algum)return '';
+    const quem=[...new Set(mem.map(g=>g.pessoa))],sit=(mDiff(fim,hoje)>0?'Quitado':fim==='9999-12'?'Fatura · contínua':'Fatura · até '+mShort(fim))+(S.view==='casal'&&quem.length===1?' · '+nome(quem[0]):'');
+    return `<tr class="item fat" data-act="fatura" data-v="${esc(k)}" aria-expanded="${aberto}"><td title="${esc(k)}"><span class="seta">${aberto?'▾':'▸'}</span>${esc(k)}</td>${tds}<td class="sit">${esc(sit)} · ${mem.length} itens</td></tr>`+
+      (aberto?mem.slice().sort(ord).map(g=>linha(semCartao(g,k),'gastos',celG(g),sitG(g,hoje)).replace('class="item"','class="item sub"')).join(''):'');
+  };
   const sec=(titulo,rows)=>rows.join('')?`<tr class="secao"><th colspan="14"><span>${titulo}</span></th></tr>${rows.join('')}`:'';
+  const parcRows=[
+    ...soltos.filter(g=>g.tipo==='parcelado').map(g=>({s:g.valor,h:linha(g,'gastos',celG(g),sitG(g,hoje))})),
+    ...Object.entries(fats).map(([k,mem])=>({s:mem.reduce((a,g)=>a+g.valor,0),h:linhaFatura(k,mem)})),
+  ].sort((a,b)=>b.s-a.s).map(x=>x.h);
   const corpo=
-    sec('Contas fixas',gs.filter(g=>g.tipo==='fixo'&&!g.observacao).sort(ord).map(g=>linha(g,'gastos',celG(g),sitG(g,hoje))))+
-    sec('Contas parceladas',gs.filter(g=>g.tipo==='parcelado'&&!g.observacao).sort(ord).map(g=>linha(g,'gastos',celG(g),sitG(g,hoje))))+
-    sec('Gastos únicos',gs.filter(g=>g.tipo==='unico'&&!g.observacao).sort((a,b)=>a.inicio.localeCompare(b.inicio)).map(g=>linha(g,'gastos',celG(g),sitG(g,hoje))))+
+    sec('Contas fixas',soltos.filter(g=>g.tipo==='fixo').sort(ord).map(g=>linha(g,'gastos',celG(g),sitG(g,hoje))))+
+    sec('Contas parceladas e cartões',parcRows)+
+    sec('Gastos únicos',soltos.filter(g=>g.tipo==='unico').sort((a,b)=>a.inicio.localeCompare(b.inicio)).map(g=>linha(g,'gastos',celG(g),sitG(g,hoje))))+
     sec('Entradas',d.rendas.filter(r=>S.view==='casal'||r.pessoa===S.view).sort(ord).map(r=>linha(r,'rendas',celR(r),r.tipo==='extra'?'Extra':r.fim?'Até '+mShort(r.fim):'Mensal')))+
     sec('Em observação · apenas informativo',gs.filter(g=>g.observacao).map(g=>linha(g,'gastos',celObs(g),'Fora das contas')));
   if(!corpo)return vazioMes();
@@ -1226,6 +1280,7 @@ document.addEventListener('click',async e=>{
     case 'tab':S.tab=v;try{history.replaceState(null,'','#'+v)}catch(_){}render();window.scrollTo(0,0);break;
     case 'mes':S.mes=addM(S.mes,+v);S.ano=null;render();break;
     case 'ano':S.ano=Math.min(Math.max(S.ano||+S.mes.slice(0,4),0),9999)+(+v);render();break;
+    case 'fatura':S.abertos.has(v)?S.abertos.delete(v):S.abertos.add(v);render();break;
     case 'ir-mes':S.mes=v;S.ano=null;S.tab='resumo';try{history.replaceState(null,'','#resumo')}catch(_){}render();window.scrollTo(0,0);break;
     case 'hoje':S.mes=mesBase();render();break;
     case 'sair-planilha':sairPlanilha();break;
