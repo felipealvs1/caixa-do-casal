@@ -203,10 +203,32 @@ tr.cur td{background:var(--surface-2)}
 .hint{font-size:12.5px;color:var(--muted)}
 .hint b{font-family:var(--f-num);font-weight:500;color:var(--ink)}
 .err{font-size:13px;color:var(--bad)}
+
+/* Planilha anual */
+.plan-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line);border-radius:var(--r);background:var(--surface)}
+.plan{border-collapse:separate;border-spacing:0;width:max-content;min-width:100%;font-size:12.5px}
+.plan th,.plan td{padding:7px 10px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:right;font-family:var(--f-ui)}
+.plan thead th{position:sticky;top:0;background:var(--surface-2);font-family:var(--f-ui);font-stretch:125%;font-variation-settings:"wdth" 125;text-transform:uppercase;letter-spacing:.1em;font-size:10.5px;font-weight:600;color:var(--muted);z-index:1}
+.plan thead th button{all:unset;cursor:pointer}
+.plan th:first-child,.plan td:first-child{position:sticky;left:0;z-index:2;background:var(--surface);text-align:left;max-width:min(260px,42vw);overflow:hidden;text-overflow:ellipsis;box-shadow:1px 0 0 var(--line)}
+.plan thead th:first-child{background:var(--surface-2);z-index:3}
+.plan td.v,.plan td.na{font-family:var(--f-num);font-variant-numeric:tabular-nums}
+.plan td.na{color:var(--line)}
+.plan td.q{color:var(--good);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase}
+.plan .cur{background:var(--surface-2)}
+.plan td.sit{color:var(--muted);text-align:left;font-size:12px}
+.plan tr.item{cursor:pointer}
+.plan tr.item:hover td{background:var(--surface-2)}
+.plan tr.secao th{position:static;box-shadow:none;max-width:none;overflow:visible}
+.plan tr.secao th span{position:sticky;left:10px}
+.plan tr.secao th{text-align:left;background:var(--bg);color:var(--num);font-family:var(--f-ui);font-stretch:125%;font-variation-settings:"wdth" 125;text-transform:uppercase;letter-spacing:.12em;font-size:10.5px;font-weight:600;border-top:1px solid var(--hair);padding-top:12px}
+.plan tr.tot td{font-weight:600;background:var(--surface-2)}
+.plan tr.tot td:first-child{background:var(--surface-2)}
+.plan td.neg{color:var(--bad)}
 .settings{display:grid;gap:18px}
 
 /* Navegação inferior + botão */
-.bottom{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(5,1fr);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+.bottom{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);display:grid;grid-template-columns:repeat(6,1fr);padding-bottom:env(safe-area-inset-bottom,0px);padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
 .bottom button{border:0;background:none;height:var(--nav-h);display:grid;place-items:center;align-content:center;gap:3px;font-size:10.5px;color:var(--muted);font-weight:500}
 .bottom button svg{width:22px;height:22px}
 .bottom button[aria-current="page"]{color:var(--ink)}
@@ -289,10 +311,11 @@ const CATS=[
   {id:'outros',nome:'Outros',grupo:'estilo'},
 ];
 const CAT=Object.fromEntries(CATS.map(c=>[c.id,c]));
-const TABS=[['resumo','Resumo'],['lancamentos','Lançamentos'],['projecao','Projeção'],['analise','Análise'],['ajustes','Ajustes']];
+const TABS=[['resumo','Resumo'],['lancamentos','Lançamentos'],['planilha','Planilha'],['projecao','Projeção'],['analise','Análise'],['ajustes','Ajustes']];
 const ICONS={
   resumo:'<path d="M4 13h4v7H4zM10 8h4v12h-4zM16 4h4v16h-4z"/>',
   lancamentos:'<path d="M5 6h14M5 12h14M5 18h9"/>',
+  planilha:'<rect x="3.5" y="4.5" width="17" height="15" rx="1.5"/><path d="M3.5 9.5h17M3.5 14.5h17M9 4.5v15"/>',
   projecao:'<path d="M4 18l5-6 4 3 7-9"/><path d="M15 6h5v5"/>',
   analise:'<circle cx="12" cy="12" r="8"/><path d="M12 8v5M12 16v.5"/>',
   mic:'<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
@@ -601,9 +624,16 @@ function render(){
   S.pendingRender=false;
   clampMes();
   renderTop();
-  const v={resumo:viewResumo,lancamentos:viewLanc,projecao:viewProj,analise:viewAnalise,ajustes:viewAjustes}[S.tab];
+  const v={resumo:viewResumo,lancamentos:viewLanc,planilha:viewPlanilha,projecao:viewProj,analise:viewAnalise,ajustes:viewAjustes}[S.tab];
   if(S.precisaSenha){$('#main').innerHTML=telaSenha();setFab(true);return}
+  // planilha: mantém a rolagem lateral entre atualizações; na primeira vez, abre já no mês atual
+  const pw=$('.plan-wrap'),antes=pw?{x:pw.scrollLeft,ano:pw.dataset.ano}:null;
   $('#main').innerHTML=(isExemplo()&&S.tab!=='ajustes'?bannerExemplo():'')+v();
+  const nw=$('.plan-wrap');
+  if(nw){
+    if(antes&&antes.ano===nw.dataset.ano)nw.scrollLeft=antes.x;
+    else{const c=nw.querySelector('thead th.cur'),f=nw.querySelector('thead th');if(c&&f){const alvo=c.previousElementSibling!==f?c.previousElementSibling:c;nw.scrollLeft=Math.max(0,alvo.offsetLeft-f.offsetWidth)}}
+  }
   setFab(S.tab==='ajustes'||!$('#sheet').hidden);
 }
 function bannerExemplo(){
@@ -739,6 +769,68 @@ function viewLanc(){
   <div class="total"><span>${S.filtro==='obs'?'Em observação, fora das contas':S.filtro==='mes'?`${isG?'Gastos':'Rendas'} ativos em ${mLabel(S.mes)}`:`Ativos em ${mLabel(S.mes)} neste filtro`}${S.view!=='casal'?' · '+esc(nome(S.view)):''}</span><span class="num">${brl0(total)}</span></div>
   ${itens.length?`<div class="list">${rows}</div>`:`<div class="card empty"><h3>Nenhum${isG?' gasto':'a renda'} aqui</h3><p style="margin:0">Use o botão Lançar para cadastrar.</p></div>`}
   <p class="hint" style="margin:0">Toque em um lançamento para editar ou excluir. Itens esmaecidos não pesam em ${mLabel(S.mes)}.</p>`;
+}
+
+/* ---------- Planilha anual (no formato da planilha de gastos do Felipe) ---------- */
+const num2=v=>(+v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2});
+function anosPlanilha(d){
+  const a0=+(inicioApp()||mesBase()).slice(0,4);let a1=+mesBase().slice(0,4)+1;
+  for(const g of d.gastos){const f=g.tipo==='parcelado'?fimParcelas(g):g.fim||g.inicio;if(okMonth(f))a1=Math.max(a1,+f.slice(0,4))}
+  return[a0,Math.min(a1,a0+10)];
+}
+function sitG(g,ref){
+  if(g.observacao)return 'Em observação';
+  if(g.tipo==='parcelado'){
+    const fim=fimParcelas(g),a=gastoAtivo(g,ref);
+    if(mDiff(fim,ref)>0)return 'Quitado';
+    return a?`${a.n}/${g.parcelas} · até ${mShort(fim)}`:`${g.parcelas}x a partir de ${mShort(g.inicio)}`;
+  }
+  if(g.tipo==='unico')return 'Único';
+  return g.fim?'Até '+mShort(g.fim):'Contínua';
+}
+function viewPlanilha(){
+  const d=D(),ini=inicioApp(),[a0,a1]=anosPlanilha(d),hoje=mesBase();
+  const ano=Math.min(Math.max(S.ano||+S.mes.slice(0,4),a0),a1);
+  const ms=Array.from({length:12},(_,i)=>ano+'-'+String(i+1).padStart(2,'0'));
+  const fora=m=>!!ini&&mDiff(m,ini)>0;
+  const cc=m=>m===S.mes?' cur':'';
+  const vis=x=>S.view==='casal'||x.pessoa===S.view||x.pessoa==='casal';
+  // na visão do casal, de quem é a conta vai junto da situação, para o nome da conta não ser cortado
+  const dono=x=>S.view==='casal'?' · '+nome(x.pessoa):'';
+  const linha=(x,col,celula,sit)=>{
+    let algum=false;
+    const tds=ms.map(m=>{if(fora(m))return `<td class="na${cc(m)}">·</td>`;const c=celula(m);if(c.v!==undefined)algum=true;return `<td class="${c.cls}${cc(m)}">${c.t}</td>`}).join('');
+    return algum?`<tr class="item" data-act="edit" data-col="${col}" data-id="${esc(x.id)}"><td title="${esc(x.descricao)}">${esc(x.descricao)}</td>${tds}<td class="sit">${esc(sit+dono(x))}</td></tr>`:'';
+  };
+  const celG=g=>m=>{
+    if(gastoAtivo(g,m)){const v=g.valor*parte(g,S.view,m,d);return{v,t:num2(v),cls:'v'}}
+    if(g.tipo==='parcelado'&&mDiff(fimParcelas(g),m)>0)return{t:'quitado',cls:'q'};
+    return{t:'–',cls:'na'};
+  };
+  const celObs=g=>m=>g.inicio===m?{v:0,t:num2(g.valor),cls:'na'}:{t:'–',cls:'na'};
+  const celR=r=>m=>rendaAtiva(r,m)?{v:+r.valor,t:num2(r.valor),cls:'v'}:{t:'–',cls:'na'};
+  const ord=(a,b)=>b.valor-a.valor;
+  const gs=d.gastos.filter(vis);
+  const sec=(titulo,rows)=>rows.join('')?`<tr class="secao"><th colspan="14"><span>${titulo}</span></th></tr>${rows.join('')}`:'';
+  const corpo=
+    sec('Contas fixas',gs.filter(g=>g.tipo==='fixo'&&!g.observacao).sort(ord).map(g=>linha(g,'gastos',celG(g),sitG(g,hoje))))+
+    sec('Contas parceladas',gs.filter(g=>g.tipo==='parcelado'&&!g.observacao).sort(ord).map(g=>linha(g,'gastos',celG(g),sitG(g,hoje))))+
+    sec('Gastos únicos',gs.filter(g=>g.tipo==='unico'&&!g.observacao).sort((a,b)=>a.inicio.localeCompare(b.inicio)).map(g=>linha(g,'gastos',celG(g),sitG(g,hoje))))+
+    sec('Entradas',d.rendas.filter(r=>S.view==='casal'||r.pessoa===S.view).sort(ord).map(r=>linha(r,'rendas',celR(r),r.tipo==='extra'?'Extra':r.fim?'Até '+mShort(r.fim):'Mensal')))+
+    sec('Em observação · apenas informativo',gs.filter(g=>g.observacao).map(g=>linha(g,'gastos',celObs(g),'Fora das contas')));
+  if(!corpo)return vazioMes();
+  const tot=ms.map(m=>fora(m)?null:mes(m,S.view));
+  let acc=0;
+  const totRow=(rot,f,neg)=>`<tr class="tot"><td>${rot}</td>${tot.map((r,i)=>{const m=ms[i];if(!r)return `<td class="na${cc(m)}">·</td>`;const v=f(r);return `<td class="v${neg&&v<0?' neg':''}${cc(m)}">${num2(v)}</td>`}).join('')}<td></td></tr>`;
+  const totais=`<tr class="secao"><th colspan="14"><span>Totais${S.view!=='casal'?' · '+esc(nome(S.view)):''}</span></th></tr>`+
+    totRow('Entradas',r=>r.renda)+totRow('Custos totais',r=>r.gastos)+totRow('Líquido',r=>r.sobra,true)+totRow('Acumulado no ano',r=>(acc+=r.sobra),true);
+  return `
+  <div class="sec-h"><h2>Planilha ${ano}</h2>
+    <div class="month"><button type="button" data-act="ano" data-v="-1" aria-label="Ano anterior" ${ano<=a0?'disabled style="opacity:.3"':''}>‹</button><span class="lbl">${ano}</span><button type="button" data-act="ano" data-v="1" aria-label="Próximo ano" ${ano>=a1?'disabled style="opacity:.3"':''}>›</button></div></div>
+  <p class="hint" style="margin:0">Valores em R$${S.view!=='casal'?`, na parte de ${esc(nome(S.view))}`:''}. Toque numa linha para editar e no nome do mês para ver o Resumo dele.${ini?` Meses antes de ${mLabel(ini)} ficam fora.`:''}</p>
+  <div class="plan-wrap" data-ano="${ano}"><table class="plan"><thead>
+    <tr><th>Contas</th>${ms.map(m=>`<th class="${cc(m)}"><button type="button" data-act="ir-mes" data-v="${m}" title="Ver ${mLong(m)}">${MESES[+m.slice(5)-1]}</button></th>`).join('')}<th style="text-align:left">Situação</th></tr>
+  </thead><tbody>${corpo}${totais}</tbody></table></div>`;
 }
 
 function niceStep(x){const p=Math.pow(10,Math.floor(Math.log10(x||1)));const f=x/p;return(f<=1?1:f<=2?2:f<=2.5?2.5:f<=5?5:10)*p}
@@ -1132,7 +1224,9 @@ document.addEventListener('click',async e=>{
   if(act!=='apagar'&&S.wipeArmed){S.wipeArmed=false}
   switch(act){
     case 'tab':S.tab=v;try{history.replaceState(null,'','#'+v)}catch(_){}render();window.scrollTo(0,0);break;
-    case 'mes':S.mes=addM(S.mes,+v);render();break;
+    case 'mes':S.mes=addM(S.mes,+v);S.ano=null;render();break;
+    case 'ano':S.ano=Math.min(Math.max(S.ano||+S.mes.slice(0,4),0),9999)+(+v);render();break;
+    case 'ir-mes':S.mes=v;S.ano=null;S.tab='resumo';try{history.replaceState(null,'','#resumo')}catch(_){}render();window.scrollTo(0,0);break;
     case 'hoje':S.mes=mesBase();render();break;
     case 'sair-planilha':sairPlanilha();break;
     case 'voz':openVoz();break;
